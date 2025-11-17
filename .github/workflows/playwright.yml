@@ -1,0 +1,47 @@
+name: Playwright Tests
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: lts/*
+    - name: Install dependencies
+      run: npm ci
+    - name: Install Playwright Browsers
+      run: npx playwright install --with-deps chromium
+    - name: Run Playwright tests
+      run: npx playwright test
+      env:
+        PLAYWRIGHT_CI: "true"
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        flags: playwright
+        token: ${{ secrets.CODECOV_TOKEN }}
+    - uses: concord-consortium/s3-deploy-action/deploy-path@v1
+      if: always()
+      id: s3-deploy-path
+    - name: Upload Playwright Report
+      if: always()
+      run: aws s3 sync ./playwright-report s3://models-resources/datalog-codap-plugin/playwright-report/${{ steps.s3-deploy-path.outputs.deployPath }} --delete --cache-control "no-cache, max-age=0"
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    # This report summary action only works when it is run during a pull_request event. It uses
+    # the info from the event to figure out what PR to add/update the comment on. At some point
+    # it might be useful to update this action to support push events for branches attached to
+    # PRs. That can be handled by this approach:
+    # https://github.com/bcgov/action-get-pr/blob/main/action.yml
+    - uses: daun/playwright-report-summary@v3
+      if: always()
+      with:
+        report-file: test-results/results.json
+        report-url: https://models-resources.concord.org/datalog-codap-plugin/playwright-report/${{ steps.s3-deploy-path.outputs.deployPath }}/
