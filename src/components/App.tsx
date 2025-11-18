@@ -1,110 +1,144 @@
-import React, { useEffect, useId, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  createDataContext,
   createItems,
-  createNewCollection,
   createTable,
-  getAllItems,
   getDataContext,
   initializePlugin,
-  addDataContextChangeListener,
-  ClientNotification,
+  codapInterface,
+  getAllItems,
 } from "@concord-consortium/codap-plugin-api";
 import "./App.css";
+import { FakeDataSet } from "../types";
+import { generateFakeDataSets } from "../utils/fake-data";
+import ScreenshotPlaceholder from "./screenshot-placeholder";
 
 const kPluginName = "Datalog";
 const kVersion = "0.0.1";
 const kInitialDimensions = {
-  width: 380,
-  height: 680
+  width: 300,
+  height: 400
 };
 const kDataContextName = "DatalogPluginData";
 
 export const App = () => {
-  const [codapResponse, setCodapResponse] = useState<any>(undefined);
-  const [listenerNotification, setListenerNotification] = useState<string>();
-  const [dataContext, setDataContext] = useState<any>(null);
-  const responseId = useId();
-  const notificationId = useId();
+  const [fakeDataSets, setFakeDataSets] = useState<FakeDataSet[]>(generateFakeDataSets());
+  const [selectedDataSet, setSelectedDataSet] = useState<FakeDataSet | null>(fakeDataSets[0]);
 
   useEffect(() => {
     initializePlugin({ pluginName: kPluginName, version: kVersion, dimensions: kInitialDimensions });
-
-    // this is an example of how to add a notification listener to a CODAP component
-    // for more information on listeners and notifications, see
-    // https://github.com/concord-consortium/codap/wiki/CODAP-Data-Interactive-Plugin-API#documentchangenotice
-    const casesUpdatedListener = (listenerRes: ClientNotification) => {
-      if (listenerRes.values.operation === "updateCases") {
-        setListenerNotification(JSON.stringify(listenerRes.values.result));
-      }
-    };
-    addDataContextChangeListener(kDataContextName, casesUpdatedListener);
   }, []);
 
-  const handleOpenTable = async () => {
-    const res = await createTable(kDataContextName);
-    setCodapResponse(res);
-  };
+  const highlightDataSet = useCallback(async (dataSet: FakeDataSet) => {
+    const getResponse = await getAllItems(kDataContextName);
+    if (getResponse.success) {
+      const selectedIndexes: number[] = [];
+      getResponse.values.forEach((item: any) => {
+        if (item.values.name === dataSet.name) {
+          selectedIndexes.push(item.id);
+        }
+      });
+      await codapInterface.sendRequest({
+        action: "create",
+        resource: `dataContext[${kDataContextName}].selectionList`,
+        values: selectedIndexes,
+      });
+    }
+  }, []);
 
-  const handleCreateData = async() => {
+  const handleSelectDataSet = useCallback((dataSet: FakeDataSet) => {
+    setSelectedDataSet(dataSet);
+
+    if (dataSet.imported) {
+      highlightDataSet(dataSet);
+    }
+  }, [highlightDataSet]);
+
+  const handleGetData = useCallback(async () => {
+    if (!selectedDataSet) return;
+
+    setFakeDataSets(prevDataSets =>
+      prevDataSets.map(ds =>
+        ds.id === selectedDataSet.id ? { ...ds, imported: true } : ds
+      )
+    );
+    setSelectedDataSet(prevSelected =>
+      prevSelected ? { ...prevSelected, imported: true } : prevSelected
+    );
+
     const existingDataContext = await getDataContext(kDataContextName);
-    let createDC, createNC, createI;
+
     if (!existingDataContext.success) {
-      createDC = await createDataContext(kDataContextName);
-      setDataContext(createDC.values);
-    }
-    if (existingDataContext?.success || createDC?.success) {
-      createNC = await createNewCollection(kDataContextName, "Pets", [
-        { name: "animal", type: "categorical" },
-        { name: "count", type: "numeric" }
-      ]);
-      createI = await createItems(kDataContextName, [
-        { animal: "dog", count: 5 },
-        { animal: "cat", count: 4 },
-        { animal: "fish", count: 20 },
-        { animal: "horse", count: 1 },
-        { animal: "bird", count: 2 },
-        { animal: "snake", count: 1 }
-      ]);
+      await codapInterface.sendRequest({
+        action: "create",
+        resource: "dataContext",
+        values: {
+          name: kDataContextName,
+          title: "Datalog Data",
+          collections: [
+            {
+              name: "datasets",
+              labels: {
+                singleCase: "dataset",
+                pluralCase: "datasets"
+              },
+              attrs: [
+                { name: "name", type: "categorical" }
+              ]
+            },
+            {
+              name: "data",
+              parent: "datasets",
+              labels: {
+                singleCase: "data",
+                pluralCase: "data"
+              },
+              attrs: [
+                { name: "time", type: "numeric" },
+                { name: "wolves", type: "numeric" },
+                { name: "sheep", type: "numeric" },
+                { name: "vegetation", type: "numeric" }
+              ]
+            }
+          ]
+        }
+      });
     }
 
-    setCodapResponse(`
-      Data context created: ${JSON.stringify(createDC)}
-      New collection created: ${JSON.stringify(createNC)}
-      New items created: ${JSON.stringify(createI)}
-    `);
-  };
+    // create the items
+    const items = selectedDataSet.data.map(row => ({
+      name: selectedDataSet.name,
+      time: row.time,
+      wolves: row.wolves,
+      sheep: row.sheep,
+      vegetation: row.vegetation
+    }));
+    await createItems(kDataContextName, items);
 
-  const handleGetResponse = async () => {
-    const result = await getAllItems(kDataContextName);
-    setCodapResponse(result);
-  };
+    await createTable(kDataContextName);
+
+    highlightDataSet(selectedDataSet);
+
+  }, [selectedDataSet, highlightDataSet]);
 
   return (
     <div className="App">
-      Datalog
-      <div className="buttons">
-        <button onClick={handleCreateData}>
-          Create some data
-        </button>
-        <button onClick={handleOpenTable} disabled={!dataContext}>
-          Open Table
-        </button>
-        <button onClick={handleGetResponse}>
-          See getAllItems response
-        </button>
-        <div className="response-area">
-          <label htmlFor={responseId}>Response:</label>
-          <output id={responseId} className="response">
-            { codapResponse && `${JSON.stringify(codapResponse, null, "  ")}` }
-          </output>
-        </div>
+      <div className="datasets">
+        {fakeDataSets.map((dataSet) => (
+          <div
+            key={dataSet.id}
+            className={`${selectedDataSet?.id === dataSet.id ? "selected" : ""} dataset`}
+            onClick={() => handleSelectDataSet(dataSet)}
+          >
+            <span className="screenshot"><ScreenshotPlaceholder seed={dataSet.id} /></span>
+            <span className="dataset-name">{dataSet.name}</span>
+            <span className="dataset-length">({Math.round(dataSet.length / 1000)} sec)</span>
+          </div>
+        ))}
       </div>
-      <div className="response-area">
-        <label htmlFor={notificationId}>Listener Notification:</label>
-        <output id={notificationId} className="response">
-          { listenerNotification && listenerNotification }
-        </output>
+      <div className="buttons">
+        <button onClick={handleGetData} disabled={!selectedDataSet || selectedDataSet.imported}>
+          Get Data
+        </button>
       </div>
     </div>
   );
