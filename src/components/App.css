@@ -1,41 +1,53 @@
 .App {
-  text-align: center;
-  background-color: white;
-  color: rgb(110,109,95);
-  font-size: 20px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
 
-  div {
+  .datasets {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
     margin: 10px;
+
+    .dataset {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px;
+      gap: 10px;
+
+      &.selected {
+        background-color: #e0e0e0;
+      }
+
+      .screenshot {
+        svg {
+          width: 40px;
+          height: 40px;
+        }
+      }
+
+      .dataset-name {
+        flex-grow: 1;
+      }
+      .dataset-length {
+        font-style: italic;
+      }
+    }
   }
+
   .buttons {
     display: flex;
     flex-direction: column;
-  }
+    margin: 10px 20px;
+    align-items: self-end;
 
-  button {
-    margin: 10px;
-  }
-  .response-area {
-    display: flex;
-    flex-direction: column;
-    h2 {
-      font-size: large;
-      margin: 0px;
-    }
-
-    .response {
-      resize: vertical;
-      min-height: 2em;
-      height: 10em;
-      overflow-y: scroll;
-      border: thin solid darkslategrey;
-      background-color: rgba(0,0,255,0.1);
-      margin: 10px;
-      padding: 0;
-      font-size: small;
-      text-align: left;
-      white-space: pre-wrap;
-      user-select: text;
+    button {
+      width: 100px
     }
   }
 }

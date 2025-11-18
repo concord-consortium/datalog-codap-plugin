@@ -5,7 +5,7 @@ import { render, screen } from "@testing-library/react";
 describe("test load app", () => {
   it("renders without crashing", () => {
     render(<App/>);
-    expect(screen.getByText("Datalog")).toBeDefined();
+    expect(screen.getByText("Get Data")).toBeDefined();
   });
 });
 
