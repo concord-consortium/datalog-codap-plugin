@@ -1,7 +1,6 @@
 // @ts-check
 
 import stylisticEslintPlugin from "@stylistic/eslint-plugin";
-import stylisticJs from "@stylistic/eslint-plugin-js";
 import globals from "globals";
 import jest from "eslint-plugin-jest";
 import json from "eslint-plugin-json";
@@ -38,7 +37,13 @@ export default typescriptEslint.config(
   importPluginConfig.recommended,
   importPluginConfig.typescript,
   react.configs.flat?.recommended,
-  reactHooks.configs["recommended-latest"],
+  {
+    name: "react-hooks",
+    plugins: {
+      "react-hooks": reactHooks
+    },
+    rules: reactHooks.configs.recommended.rules
+  },
   {
     name: "browser files",
     files: ["src/**"],
@@ -50,7 +55,6 @@ export default typescriptEslint.config(
     name: "general rules",
     plugins: {
       "@stylistic": stylisticEslintPlugin,
-      "@stylistic/js": stylisticJs,
     },
     languageOptions: {
       parser: tsParser,
@@ -95,7 +99,7 @@ export default typescriptEslint.config(
       // like the Concord mobx-state-tree override
       "import/no-extraneous-dependencies": "warn",
       "import/no-useless-path-segments": "warn",
-      "@stylistic/js/jsx-quotes": ["error", "prefer-double"],
+      "@stylistic/jsx-quotes": ["error", "prefer-double"],
       "max-len": ["warn", { code: 120, ignoreUrls: true }],
       "no-bitwise": "error",
       "no-debugger": "off",
@@ -150,18 +154,19 @@ export default typescriptEslint.config(
   {
     name: "rules specific to Jest tests",
     files: ["src/**/*.test.*"],
+    plugins: {
+      jest,
+      "testing-library": testingLibrary
+    },
     languageOptions: {
       globals: {
         ...globals.node,
         ...globals.jest
       }
     },
-    // ts eslint's config function adds back in the `extends` feature of the older eslint
-    extends: [
-      jest.configs["flat/recommended"],
-      testingLibrary.configs["flat/react"]
-    ],
     rules: {
+      ...jest.configs["flat/recommended"].rules,
+      ...testingLibrary.configs["flat/react"].rules,
       "@typescript-eslint/no-non-null-assertion": "off",
       // require() can be useful in mocking
       "@typescript-eslint/no-require-imports": "off",
@@ -172,9 +177,12 @@ export default typescriptEslint.config(
   {
     name: "rules specific to Playwright tests",
     files: ["playwright/**"],
-    extends: [
-      playwright.configs["flat/recommended"]
-    ]
+    plugins: {
+      playwright
+    },
+    rules: {
+      ...playwright.configs["flat/recommended"].rules
+    }
   },
   {
     name: "json files",
