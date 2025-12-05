@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   createItems,
   createTable,
@@ -7,10 +7,12 @@ import {
   codapInterface,
   getAllItems,
 } from "@concord-consortium/codap-plugin-api";
+
+import {
+  createObjectStorage, IObjectStorage, TypedObject, FirebaseObjectStorageConfig, TypedDataTableMetadata
+} from "@concord-consortium/object-storage";
+
 import "./App.css";
-import { FakeDataSet } from "../types";
-import { generateFakeDataSets } from "../utils/fake-data";
-import ScreenshotPlaceholder from "./screenshot-placeholder";
 
 const kPluginName = "Datalog";
 const kVersion = "0.0.1";
@@ -20,20 +22,141 @@ const kInitialDimensions = {
 };
 const kDataContextName = "DatalogPluginData";
 
-export const App = () => {
-  const [fakeDataSets, setFakeDataSets] = useState<FakeDataSet[]>(generateFakeDataSets());
-  const [selectedDataSet, setSelectedDataSet] = useState<FakeDataSet | null>(fakeDataSets[0]);
+// for now we'll get linked interactives from the URL - this will change once we add
+// CODAP authoring to LARA
+const dataSourceInteractive = new URLSearchParams(window.location.search).get("dataSourceInteractive");
 
+interface StoredObjectDataTable {
+  name: string;
+  objectId: string;
+  dataTableMetadata: TypedDataTableMetadata;
+  dataTableItemId: string;
+}
+
+export const App = () => {
+  const [initialized, setInitialized] = useState(false);
+  const [fatalError, setFatalError] = useState<string | null>(null);
+  const [objectStorageConfig, setObjectStorageConfig] = useState<FirebaseObjectStorageConfig | null>(null);
+  const objectStorageRef = useRef<IObjectStorage | null>(null);
+  const [storedObjectDataTables, setStoredObjectDataTables] = useState<StoredObjectDataTable[]>([]);
+  const [selectedDataTableObjectId, setSelectedDataTableObjectId] = useState<string | null>(null);
+  const [importedDataTableIds, setImportedDataTableIds] = useState<Set<string>>(new Set());
+
+  const addImportedDataTableId = useCallback((id: string) => {
+    const add = async () => {
+      setImportedDataTableIds(prev => new Set(prev).add(id));
+      const newState = {
+        importedDataTableIds: Array.from(importedDataTableIds).concat([id])
+      };
+      await codapInterface.updateInteractiveState(newState);
+    };
+    if (!importedDataTableIds.has(id)) {
+      add();
+    };
+  }, [importedDataTableIds]);
+
+  // initialize the plugin and get the Interactive API settings
   useEffect(() => {
-    initializePlugin({ pluginName: kPluginName, version: kVersion, dimensions: kInitialDimensions });
+    const init = async () => {
+      await initializePlugin({ pluginName: kPluginName, version: kVersion, dimensions: kInitialDimensions });
+
+      const interactiveState: any = await codapInterface.getInteractiveState();
+      if (interactiveState?.importedDataTableIds) {
+        setImportedDataTableIds(new Set(interactiveState.importedDataTableIds));
+      }
+
+      const result: any = await codapInterface.sendRequest({ action: "get", resource: "interactiveApi"});
+      if (!result.success) {
+        console.error("Failed to get Interactive API. Request result:", result);
+        setFatalError("Failed to get Interactive API.  Make sure you are running this in CODAP v3 or later.");
+        return;
+      }
+
+      if (!result.values?.available) {
+        console.error("Interactive API is not available. Request result:", result);
+        setFatalError("Interactive API is not available. Make sure you are running this in Activity Player.");
+        return;
+      }
+
+      const { initInteractive } = result.values;
+      if (!initInteractive) {
+        console.error("Interactive API is not valid. Request result:", result);
+        setFatalError("Interactive API result is not valid - initInteractive is missing.");
+        return;
+      }
+
+      if (!initInteractive.objectStorageConfig) {
+        console.error("The objectStorageConfig is missing in the Interactive API response:", initInteractive);
+        // eslint-disable-next-line max-len
+        setFatalError("The objectStorageConfig is missing in the Interactive API response.  Make sure you are using the latest version of Activity Player.");
+        return;
+      }
+
+      if (!dataSourceInteractive) {
+        console.error("The dataSourceInteractive query param is missing.");
+        // eslint-disable-next-line max-len
+        setFatalError("The dataSourceInteractive query param is missing.  Make sure to add a ?dataSourceInteractive=<id> query parameter to the URL.  This will be fixed once CODAP authoring is added to LARA.");
+        return;
+      }
+
+      setObjectStorageConfig(initInteractive.objectStorageConfig);
+    };
+
+    init();
   }, []);
 
-  const highlightDataSet = useCallback(async (dataSet: FakeDataSet) => {
+  // start listening to object storage
+  useEffect(() => {
+    if (fatalError || !objectStorageConfig || !dataSourceInteractive) {
+      return;
+    }
+
+    if (!objectStorageRef.current) {
+      objectStorageRef.current = createObjectStorage(objectStorageConfig);
+    }
+    const unsubscribe = objectStorageRef.current.monitor(dataSourceInteractive, (objects) => {
+      const newStoredObjectDataTables: StoredObjectDataTable[] = [];
+
+      let dataTableIndex = 1;
+      objects.forEach(obj => {
+        if (TypedObject.IsSupportedTypedObjectMetadata(obj.metadata)) {
+          const dataTableItem = Object.entries(obj.metadata.items).find(([_, item]) => item.type === "dataTable");
+          if (dataTableItem) {
+            const [dataTableItemId, dataTableMetadata] = dataTableItem;
+            let name = obj.metadata.description ?? obj.metadata.name;
+            if (!name || name.trim().length === 0) {
+              name = `Data Set ${dataTableIndex}`;
+              dataTableIndex += 1;
+            }
+
+            newStoredObjectDataTables.push({
+              name,
+              objectId: obj.id,
+              dataTableMetadata: dataTableMetadata as TypedDataTableMetadata,
+              dataTableItemId
+            });
+          }
+        }
+      });
+      setStoredObjectDataTables(newStoredObjectDataTables);
+      setInitialized(true);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+
+  }, [objectStorageConfig, fatalError, initialized]);
+
+  const highlightDataSet = useCallback(async (id: string) => {
+
+    const highlightObject = storedObjectDataTables.find(dt => dt.objectId === id);
+
     const getResponse = await getAllItems(kDataContextName);
     if (getResponse.success) {
       const selectedIndexes: number[] = [];
       getResponse.values.forEach((item: any) => {
-        if (item.values.name === dataSet.name) {
+        if (item.values.name === highlightObject?.name) {
           selectedIndexes.push(item.id);
         }
       });
@@ -43,30 +166,38 @@ export const App = () => {
         values: selectedIndexes,
       });
     }
-  }, []);
+  }, [storedObjectDataTables]);
 
-  const handleSelectDataSet = useCallback((dataSet: FakeDataSet) => {
-    setSelectedDataSet(dataSet);
-
-    if (dataSet.imported) {
-      highlightDataSet(dataSet);
-    }
+  const handleSelectDataTableId = useCallback((id: string) => {
+    setSelectedDataTableObjectId(id);
+    highlightDataSet(id);
   }, [highlightDataSet]);
 
   const handleGetData = useCallback(async () => {
-    if (!selectedDataSet) return;
+    if (!selectedDataTableObjectId) return;
 
-    setFakeDataSets(prevDataSets =>
-      prevDataSets.map(ds =>
-        ds.id === selectedDataSet.id ? { ...ds, imported: true } : ds
-      )
-    );
-    setSelectedDataSet(prevSelected =>
-      prevSelected ? { ...prevSelected, imported: true } : prevSelected
-    );
+    const selectedDataTableObject = storedObjectDataTables.find(dt => dt.objectId === selectedDataTableObjectId);
+    if (!selectedDataTableObject) {
+      alert("Failed to get the selected object.");
+      return;
+    }
+
+    const objectData = await objectStorageRef.current?.readData(selectedDataTableObjectId);
+    if (!objectData) {
+      alert("Failed to read the selected data table object from object storage.");
+      return;
+    }
+
+    const dataTableData = objectData[selectedDataTableObject.dataTableItemId];
+    if (!dataTableData) {
+      alert("The selected object does not contain a data table item.");
+      return;
+    }
+
+    const { cols } = selectedDataTableObject.dataTableMetadata;
+    const attrs = cols.map((col: any) => ({name: col, type: "numeric"}));
 
     const existingDataContext = await getDataContext(kDataContextName);
-
     if (!existingDataContext.success) {
       await codapInterface.sendRequest({
         action: "create",
@@ -92,12 +223,7 @@ export const App = () => {
                 singleCase: "data",
                 pluralCase: "data"
               },
-              attrs: [
-                { name: "time", type: "numeric" },
-                { name: "wolves", type: "numeric" },
-                { name: "sheep", type: "numeric" },
-                { name: "vegetation", type: "numeric" }
-              ]
+              attrs
             }
           ]
         }
@@ -105,41 +231,65 @@ export const App = () => {
     }
 
     // create the items
-    const items = selectedDataSet.data.map(row => ({
-      name: selectedDataSet.name,
-      time: row.time,
-      wolves: row.wolves,
-      sheep: row.sheep,
-      vegetation: row.vegetation
-    }));
+    const items = Object.values(dataTableData.rows || {}).map(rowValues => {
+      const item: any = {
+        name: selectedDataTableObject.name
+      };
+      cols.forEach((col, index) => {
+        item[col] = (rowValues as any)[index];
+      });
+      return item;
+    });
     await createItems(kDataContextName, items);
 
     await createTable(kDataContextName);
 
-    highlightDataSet(selectedDataSet);
+    highlightDataSet(selectedDataTableObjectId);
 
-  }, [selectedDataSet, highlightDataSet]);
+    addImportedDataTableId(selectedDataTableObjectId);
+
+  }, [selectedDataTableObjectId, storedObjectDataTables, highlightDataSet, addImportedDataTableId]);
+
+  const getDataDisabled = !selectedDataTableObjectId || importedDataTableIds.has(selectedDataTableObjectId);
+
+  const renderApp = () => {
+    if (fatalError) {
+      return <div className="fatal-error">{fatalError}</div>;
+    }
+    if (!initialized) {
+      return <div className="initializing">Initializing...</div>;
+    }
+    if (storedObjectDataTables.length === 0) {
+      return <div className="no-data">No data tables were found.</div>;
+    }
+
+    return (
+      <>
+        <div className="datasets">
+          {storedObjectDataTables.map(({objectId, name}) => (
+            <div
+              key={objectId}
+              // eslint-disable-next-line max-len
+              className={`${selectedDataTableObjectId === objectId ? "selected" : ""} ${importedDataTableIds.has(objectId) ? "imported" : ""} dataset`}
+              onClick={() => handleSelectDataTableId(objectId)}
+            >
+              {/* <span className="screenshot"><ScreenshotPlaceholder seed={objectId} /></span> */}
+              <span className="dataset-name">{name}</span>
+            </div>
+          ))}
+        </div>
+        <div className="buttons">
+          <button onClick={handleGetData} disabled={getDataDisabled}>
+            Get Data
+          </button>
+        </div>
+      </>
+    );
+  };
 
   return (
     <div className="App">
-      <div className="datasets">
-        {fakeDataSets.map((dataSet) => (
-          <div
-            key={dataSet.id}
-            className={`${selectedDataSet?.id === dataSet.id ? "selected" : ""} dataset`}
-            onClick={() => handleSelectDataSet(dataSet)}
-          >
-            <span className="screenshot"><ScreenshotPlaceholder seed={dataSet.id} /></span>
-            <span className="dataset-name">{dataSet.name}</span>
-            <span className="dataset-length">({Math.round(dataSet.length / 1000)} sec)</span>
-          </div>
-        ))}
-      </div>
-      <div className="buttons">
-        <button onClick={handleGetData} disabled={!selectedDataSet || selectedDataSet.imported}>
-          Get Data
-        </button>
-      </div>
+      {renderApp()}
     </div>
   );
 };
