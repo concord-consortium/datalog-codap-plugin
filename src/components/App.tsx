@@ -42,28 +42,10 @@ export const App = () => {
   const [selectedDataTableObjectId, setSelectedDataTableObjectId] = useState<string | null>(null);
   const [importedDataTableIds, setImportedDataTableIds] = useState<Set<string>>(new Set());
 
-  const addImportedDataTableId = useCallback((id: string) => {
-    const add = async () => {
-      setImportedDataTableIds(prev => new Set(prev).add(id));
-      const newState = {
-        importedDataTableIds: Array.from(importedDataTableIds).concat([id])
-      };
-      await codapInterface.updateInteractiveState(newState);
-    };
-    if (!importedDataTableIds.has(id)) {
-      add();
-    };
-  }, [importedDataTableIds]);
-
   // initialize the plugin and get the Interactive API settings
   useEffect(() => {
     const init = async () => {
       await initializePlugin({ pluginName: kPluginName, version: kVersion, dimensions: kInitialDimensions });
-
-      const interactiveState: any = await codapInterface.getInteractiveState();
-      if (interactiveState?.importedDataTableIds) {
-        setImportedDataTableIds(new Set(interactiveState.importedDataTableIds));
-      }
 
       const result: any = await codapInterface.sendRequest({ action: "get", resource: "interactiveApi"});
       if (!result.success) {
@@ -100,6 +82,47 @@ export const App = () => {
       }
 
       setObjectStorageConfig(initInteractive.objectStorageConfig);
+
+      // find all the current objects imported
+      const checkAllCases = async () => {
+          const getResponse = await getAllItems(kDataContextName);
+          if (getResponse.success) {
+            const importedIds = new Set<string>();
+            getResponse.values.forEach((item: any) => {
+              if (item.values.__objectId) {
+                importedIds.add(item.values.__objectId);
+              }
+            });
+            setImportedDataTableIds(importedIds);
+          }
+      };
+      await checkAllCases();
+
+      // start listening to data context changes in CODAP
+      codapInterface.on("notify", `dataContext[${kDataContextName}].case`, (msg) => {
+        const checkDeleted = async () => {
+          await checkAllCases();
+        };
+
+        switch (msg.action) {
+          case "create":
+          case "update":
+            setImportedDataTableIds(prev => {
+              const newSet = new Set(prev);
+              msg.values.cases.forEach((cases: any) => {
+                if (cases.values.__objectId) {
+                  newSet.add(cases.values.__objectId);
+                }
+              });
+              return newSet;
+            });
+            break;
+
+          case "delete":
+            checkDeleted();
+            break;
+        }
+      });
     };
 
     init();
@@ -107,7 +130,7 @@ export const App = () => {
 
   // start listening to object storage
   useEffect(() => {
-    if (fatalError || !objectStorageConfig || !dataSourceInteractive) {
+    if (!objectStorageConfig || !dataSourceInteractive) {
       return;
     }
 
@@ -146,7 +169,7 @@ export const App = () => {
       unsubscribe();
     };
 
-  }, [objectStorageConfig, fatalError, initialized]);
+  }, [objectStorageConfig, fatalError]);
 
   const highlightDataSet = useCallback(async (id: string) => {
 
@@ -195,7 +218,8 @@ export const App = () => {
     }
 
     const { cols } = selectedDataTableObject.dataTableMetadata;
-    const attrs = cols.map((col: any) => ({name: col, type: "numeric"}));
+    const attrs: any[] = cols.map((col: any) => ({name: col, type: "numeric"}));
+    attrs.push({ name: "__objectId", type: "categorical", hidden: true });
 
     const existingDataContext = await getDataContext(kDataContextName);
     if (!existingDataContext.success) {
@@ -233,7 +257,8 @@ export const App = () => {
     // create the items
     const items = Object.values(dataTableData.rows || {}).map(rowValues => {
       const item: any = {
-        name: selectedDataTableObject.name
+        name: selectedDataTableObject.name,
+        __objectId: selectedDataTableObjectId
       };
       cols.forEach((col, index) => {
         item[col] = (rowValues as any)[index];
@@ -246,9 +271,9 @@ export const App = () => {
 
     highlightDataSet(selectedDataTableObjectId);
 
-    addImportedDataTableId(selectedDataTableObjectId);
+    setImportedDataTableIds(prev => new Set(prev).add(selectedDataTableObjectId));
 
-  }, [selectedDataTableObjectId, storedObjectDataTables, highlightDataSet, addImportedDataTableId]);
+  }, [selectedDataTableObjectId, storedObjectDataTables, highlightDataSet]);
 
   const getDataDisabled = !selectedDataTableObjectId || importedDataTableIds.has(selectedDataTableObjectId);
 
