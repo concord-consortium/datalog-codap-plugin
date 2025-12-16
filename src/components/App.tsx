@@ -9,7 +9,8 @@ import {
 } from "@concord-consortium/codap-plugin-api";
 
 import {
-  createObjectStorage, IObjectStorage, TypedObject, FirebaseObjectStorageConfig, TypedDataTableMetadata
+  createObjectStorage, IObjectStorage, FirebaseObjectStorageConfig, StoredObjectDataTableMetadata,
+  StoredImageMetadata
 } from "@concord-consortium/object-storage";
 
 import "./App.css";
@@ -29,8 +30,10 @@ const dataSourceInteractive = new URLSearchParams(window.location.search).get("d
 interface StoredObjectDataTable {
   name: string;
   objectId: string;
-  dataTableMetadata: TypedDataTableMetadata;
+  dataTableMetadata: StoredObjectDataTableMetadata;
   dataTableItemId: string;
+  thumbnailMetadata?: StoredImageMetadata;
+  thumbnailItemId?: string;
 }
 
 export const App = () => {
@@ -41,6 +44,8 @@ export const App = () => {
   const [storedObjectDataTables, setStoredObjectDataTables] = useState<StoredObjectDataTable[]>([]);
   const [selectedDataTableObjectId, setSelectedDataTableObjectId] = useState<string | null>(null);
   const [importedDataTableIds, setImportedDataTableIds] = useState<Set<string>>(new Set());
+  const [thumbnailUrls, setThumbnailUrls] = useState<Map<string, string>>(new Map());
+  const fetchedThumbnailIds = useRef<Set<string>>(new Set());
 
   // initialize the plugin and get the Interactive API settings
   useEffect(() => {
@@ -50,7 +55,8 @@ export const App = () => {
       const result: any = await codapInterface.sendRequest({ action: "get", resource: "interactiveApi"});
       if (!result.success) {
         console.error("Failed to get Interactive API. Request result:", result);
-        setFatalError("Failed to get Interactive API.  Make sure you are running this in CODAP v3 or later.");
+        // eslint-disable-next-line max-len
+        setFatalError("Failed to connect to Interactive API.  Make sure you are running this in CODAP v3 or later under Activity Player.");
         return;
       }
 
@@ -142,23 +148,39 @@ export const App = () => {
 
       let dataTableIndex = 1;
       objects.forEach(obj => {
-        if (TypedObject.IsSupportedTypedObjectMetadata(obj.metadata)) {
-          const dataTableItem = Object.entries(obj.metadata.items).find(([_, item]) => item.type === "dataTable");
-          if (dataTableItem) {
-            const [dataTableItemId, dataTableMetadata] = dataTableItem;
-            let name = obj.metadata.description ?? obj.metadata.name;
-            if (!name || name.trim().length === 0) {
-              name = `Data Set ${dataTableIndex}`;
-              dataTableIndex += 1;
-            }
+        // eslint-disable-next-line max-len
+        const imageItems = Object.entries(obj.metadata.items).filter(([_, item]) => item.type === "image") as [string, StoredImageMetadata][];
+        let thumbnailItem = imageItems.find(([_, item]) => item.subType?.includes("thumbnail"));
+        if (!thumbnailItem) {
+          thumbnailItem = imageItems.reduce((prev, curr) => {
+            const [, currItem] = curr;
+            const [, prevItem] = prev;
+            const curWidth = currItem.width ?? Number.MAX_VALUE;
+            const curHeight = currItem.height ?? Number.MAX_VALUE;
+            const prevWidth = prevItem.width ?? Number.MAX_VALUE;
+            const prevHeight = prevItem.height ?? Number.MAX_VALUE;
+            return (curWidth * curHeight < prevWidth * prevHeight) ? curr : prev;
+          }, imageItems[0]);
+        }
+        const [thumbnailItemId, thumbnailMetadata] = thumbnailItem || [];
 
-            newStoredObjectDataTables.push({
-              name,
-              objectId: obj.id,
-              dataTableMetadata: dataTableMetadata as TypedDataTableMetadata,
-              dataTableItemId
-            });
+        const dataTableItem = Object.entries(obj.metadata.items).find(([_, item]) => item.type === "dataTable");
+        if (dataTableItem) {
+          const [dataTableItemId, dataTableMetadata] = dataTableItem;
+          let name = obj.metadata.description ?? obj.metadata.name;
+          if (!name || name.trim().length === 0) {
+            name = `Data Set ${dataTableIndex}`;
+            dataTableIndex += 1;
           }
+
+          newStoredObjectDataTables.push({
+            name,
+            objectId: obj.id,
+            dataTableMetadata: dataTableMetadata as StoredObjectDataTableMetadata,
+            dataTableItemId,
+            thumbnailItemId,
+            thumbnailMetadata,
+          });
         }
       });
       setStoredObjectDataTables(newStoredObjectDataTables);
@@ -171,8 +193,28 @@ export const App = () => {
 
   }, [objectStorageConfig, fatalError]);
 
-  const highlightDataSet = useCallback(async (id: string) => {
+  // get thumbnails as they are added
+  useEffect(() => {
+    const fetchThumbnails = async () => {
+      if (!objectStorageRef.current) return;
 
+      for (const obj of storedObjectDataTables) {
+        // Only fetch if we have a thumbnail ID and haven't already fetched it
+        if (obj.thumbnailItemId && !fetchedThumbnailIds.current.has(obj.objectId)) {
+          fetchedThumbnailIds.current.add(obj.objectId);
+
+          const imageData = await objectStorageRef.current.readDataItem(obj.objectId, obj.thumbnailItemId);
+          if (imageData?.url) {
+            setThumbnailUrls(prev => new Map(prev).set(obj.objectId, imageData.url));
+          }
+        }
+      }
+    };
+
+    fetchThumbnails();
+  }, [storedObjectDataTables]);
+
+  const highlightDataSet = useCallback(async (id: string) => {
     const highlightObject = storedObjectDataTables.find(dt => dt.objectId === id);
 
     const getResponse = await getAllItems(kDataContextName);
@@ -205,13 +247,8 @@ export const App = () => {
       return;
     }
 
-    const objectData = await objectStorageRef.current?.readData(selectedDataTableObjectId);
-    if (!objectData) {
-      alert("Failed to read the selected data table object from object storage.");
-      return;
-    }
-
-    const dataTableData = objectData[selectedDataTableObject.dataTableItemId];
+    // eslint-disable-next-line max-len
+    const dataTableData = await objectStorageRef.current?.readDataItem(selectedDataTableObjectId, selectedDataTableObject.dataTableItemId);
     if (!dataTableData) {
       alert("The selected object does not contain a data table item.");
       return;
@@ -291,17 +328,24 @@ export const App = () => {
     return (
       <>
         <div className="datasets">
-          {storedObjectDataTables.map(({objectId, name}) => (
-            <div
-              key={objectId}
-              // eslint-disable-next-line max-len
-              className={`${selectedDataTableObjectId === objectId ? "selected" : ""} ${importedDataTableIds.has(objectId) ? "imported" : ""} dataset`}
-              onClick={() => handleSelectDataTableId(objectId)}
-            >
-              {/* <span className="screenshot"><ScreenshotPlaceholder seed={objectId} /></span> */}
-              <span className="dataset-name">{name}</span>
-            </div>
-          ))}
+          {storedObjectDataTables.map(({objectId, name}) => {
+            // eslint-disable-next-line max-len
+            const className = `${selectedDataTableObjectId === objectId ? "selected" : ""} ${importedDataTableIds.has(objectId) ? "imported" : ""} dataset`;
+            const thumbnailUrl = thumbnailUrls.get(objectId);
+
+            return (
+              <div
+                key={objectId}
+                className={className}
+                onClick={() => handleSelectDataTableId(objectId)}
+              >
+                {thumbnailUrl && (
+                  <span className="thumbnail"><img src={thumbnailUrl} alt={`Thumbnail for ${name}`} /></span>
+                )}
+                <span className="dataset-name">{name}</span>
+              </div>
+            );
+          })}
         </div>
         <div className="buttons">
           <button onClick={handleGetData} disabled={getDataDisabled}>
