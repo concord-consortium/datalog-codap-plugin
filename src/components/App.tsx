@@ -52,6 +52,14 @@ export const App = () => {
     const init = async () => {
       await initializePlugin({ pluginName: kPluginName, version: kVersion, dimensions: kInitialDimensions });
 
+      // hide the close button - this will be running in a shared CODAP doc inside Activity Player so we don't
+      // want users accidentally closing it and then being unable to get it back
+      await codapInterface.sendRequest({
+        action: "update",
+        resource: "interactiveFrame",
+        values: { cannotClose: true }
+      });
+
       const result: any = await codapInterface.sendRequest({ action: "get", resource: "interactiveApi"});
       if (!result.success) {
         console.error("Failed to get Interactive API. Request result:", result);
