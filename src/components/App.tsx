@@ -23,10 +23,6 @@ const kInitialDimensions = {
 };
 const kDataContextName = "DatalogPluginData";
 
-// for now we'll get linked interactives from the URL - this will change once we add
-// CODAP authoring to LARA
-const dataSourceInteractive = new URLSearchParams(window.location.search).get("dataSourceInteractive");
-
 interface StoredObjectDataTable {
   name: string;
   objectId: string;
@@ -46,6 +42,7 @@ export const App = () => {
   const [importedDataTableIds, setImportedDataTableIds] = useState<Set<string>>(new Set());
   const [thumbnailUrls, setThumbnailUrls] = useState<Map<string, string>>(new Map());
   const fetchedThumbnailIds = useRef<Set<string>>(new Set());
+  const [dataSourceInteractive, setDataSourceInteractive] = useState<string | null>(null);
 
   // initialize the plugin and get the Interactive API settings
   useEffect(() => {
@@ -88,10 +85,15 @@ export const App = () => {
         return;
       }
 
-      if (!dataSourceInteractive) {
-        console.error("The dataSourceInteractive query param is missing.");
+      // find the data source interactive in the linked interactives
+      const dataSourceLink = initInteractive.linkedInteractives.find((link: any) =>
+        link.label === "data_source_interactive"
+      );
+      if (dataSourceLink?.id) {
+        setDataSourceInteractive(dataSourceLink.id);
+      } else {
         // eslint-disable-next-line max-len
-        setFatalError("The dataSourceInteractive query param is missing.  Make sure to add a ?dataSourceInteractive=<id> query parameter to the URL.  This will be fixed once CODAP authoring is added to LARA.");
+        setFatalError("The Data Source Interactive was not set in LARA authoring. Please set it to use this plugin.");
         return;
       }
 
@@ -199,7 +201,7 @@ export const App = () => {
       unsubscribe();
     };
 
-  }, [objectStorageConfig, fatalError]);
+  }, [objectStorageConfig, fatalError, dataSourceInteractive]);
 
   // get thumbnails as they are added
   useEffect(() => {
