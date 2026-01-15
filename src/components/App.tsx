@@ -16,7 +16,7 @@ import {
 import "./App.css";
 
 const kPluginName = "Datalog";
-const kVersion = "0.0.1";
+const kVersion = "0.0.2";
 const kInitialDimensions = {
   width: 300,
   height: 400
