@@ -153,7 +153,12 @@ export const App = () => {
     if (!objectStorageRef.current) {
       objectStorageRef.current = createObjectStorage(objectStorageConfig);
     }
-    const unsubscribe = objectStorageRef.current.monitor(dataSourceInteractive, (objects) => {
+    let cancelled = false;
+    let demonitor: (() => void) | undefined;
+
+    objectStorageRef.current.monitor(dataSourceInteractive, (objects) => {
+      if (cancelled) return;
+
       const newStoredObjectDataTables: StoredObjectDataTable[] = [];
 
       let dataTableIndex = 1;
@@ -195,10 +200,17 @@ export const App = () => {
       });
       setStoredObjectDataTables(newStoredObjectDataTables);
       setInitialized(true);
+    }).then(fn => {
+      if (cancelled) {
+        fn();
+      } else {
+        demonitor = fn;
+      }
     });
 
     return () => {
-      unsubscribe();
+      cancelled = true;
+      demonitor?.();
     };
 
   }, [objectStorageConfig, fatalError, dataSourceInteractive]);
