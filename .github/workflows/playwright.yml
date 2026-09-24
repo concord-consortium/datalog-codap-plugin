@@ -8,6 +8,10 @@ jobs:
     if: false  # Disabled - Playwright tests not compatible with current setup
     timeout-minutes: 60
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-node@v4
@@ -29,12 +33,14 @@ jobs:
     - uses: concord-consortium/s3-deploy-action/deploy-path@v1
       if: always()
       id: s3-deploy-path
+    - uses: aws-actions/configure-aws-credentials@v6
+      if: always()
+      with:
+        role-to-assume: arn:aws:iam::612297603577:role/datalog-codap-plugin
+        aws-region: us-east-1
     - name: Upload Playwright Report
       if: always()
       run: aws s3 sync ./playwright-report s3://models-resources/datalog-codap-plugin/playwright-report/${{ steps.s3-deploy-path.outputs.deployPath }} --delete --cache-control "no-cache, max-age=0"
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
     # This report summary action only works when it is run during a pull_request event. It uses
     # the info from the event to figure out what PR to add/update the comment on. At some point
