@@ -17,7 +17,7 @@ No dependency or lockfile changes are needed, apart from the version bump in the
 
 **Estimated diff size**: ~110 lines
 
-Mocks `@concord-consortium/codap-plugin-api`, and `createObjectStorage` to return a stub with `monitor` and `readDataItem`. The mock includes `getListOfDataContexts`, resolving to `{ success: true, values: [] }`, even though the unchanged `App` doesn't call it: without it the later `checkAllCases` throws at `list.values`, `init` stops before the listener, and this file would need editing. This harness was run against the unchanged `App`. The stored object uses the exact shape in the requirements' "What Agent Sim saves", with two images, a text item, and a table whose values differ per row and per column. Tests:
+Mocks `@concord-consortium/codap-plugin-api`, and `createObjectStorage` to return a stub with `monitor` and `readDataItem`. The mock includes `getListOfDataContexts`, resolving to `{ success: true, values: [] }`, even though the unchanged `App` doesn't call it: without it the later `checkAllCases` throws at `list.success`, `init` stops before the listener, and this file would need editing. This harness was run against the unchanged `App`. The stored object uses the exact shape in the requirements' "What Agent Sim saves", with two images, a text item, and a table whose values differ per row and per column. Tests:
 
 - The `dataContext` create request equals the full literal payload (name, title, both collections, every column `numeric`, hidden `__objectId`). Catches any change to type, title or collection.
 - `createItems` receives the literal items, in row order. Catches a column shift or a changed `name`.
@@ -105,7 +105,7 @@ Tests use a real `StoredObject` written through the demo storage, then one case 
 - `src/snapshot/import-snapshot.ts`: new
 - `src/snapshot/import-snapshot.test.ts`: new
 
-**Estimated diff size**: ~270 lines
+**Estimated diff size**: ~515 lines, about 420 of them tests
 
 ```ts
 import {
@@ -148,22 +148,27 @@ const deleteDataset = (dataset: string) =>
 
 const snapshotDatasets = async (): Promise<string[]> => {
   const list = await getListOfDataContexts();
-  return (list.values ?? []).map((context: any) => context.name).filter((n: string) => n.startsWith(kDatasetPrefix));
+  const contexts: any[] = list.success ? list.values : [];
+  return contexts.map(context => context.name).filter((name: string) => name.startsWith(kDatasetPrefix));
+};
+
+const datasetItems = async (dataset: string): Promise<any[]> => {
+  const items = await getAllItems(dataset);
+  return items.success ? items.values : [];
 };
 
 export const findImportedSnapshotIds = async () => {
   const ids = new Set<string>();
   for (const name of await snapshotDatasets()) {
-    const items = await getAllItems(name);
-    items.values?.forEach((item: any) => ids.add(item.values[kObjectIdAttr]));
+    (await datasetItems(name)).forEach(item => ids.add(item.values[kObjectIdAttr]));
   }
   return ids;
 };
 
 export const selectSnapshotRows = async (objectId: string) => {
   for (const name of await snapshotDatasets()) {
-    const items = await getAllItems(name);
-    const ids = (items.values ?? []).filter((i: any) => i.values[kObjectIdAttr] === objectId).map((i: any) => i.id);
+    const items = await datasetItems(name);
+    const ids = items.filter(item => item.values[kObjectIdAttr] === objectId).map(item => item.id);
     await codapInterface.sendRequest({ action: "create", resource: `dataContext[${name}].selectionList`, values: ids });
   }
 };
@@ -192,15 +197,17 @@ export const importSnapshot = async (
         return { values };
       });
       await requireSuccess(createItems(dataset, items), `the rows of "${title}"`);
-      await createTable(dataset);
+      await requireSuccess(createTable(dataset), `a case table for "${title}"`);
     }
+    await selectSnapshotRows(objectId);
   } catch (e) {
     for (const { tableIndex } of withRows) await deleteDataset(datasetName(objectId, tableIndex));
     throw e;
   }
-  await selectSnapshotRows(objectId);
 };
 ```
+
+A selection that gets no answer rolls the import back like any other write, but one CODAP answers with a refusal does not: the rows are all there, so only the highlight is lost.
 
 Tests mock the CODAP API with an in-memory list of datasets, which, like CODAP, returns the existing dataset for a repeated name:
 
@@ -215,9 +222,11 @@ Tests mock the CODAP API with an in-memory list of datasets, which, like CODAP, 
 - `createTable` calls follow index order, using an index whose order differs from `metadata.items`. Catches a loop over the items.
 - `createDataset` answering `success: false`, and `createItems` answering it on the second table, each reject, naming the title. Catches dropping `requireSuccess`.
 - A `createItems` that rejects on the second table sends a delete for each table's dataset, rethrows the same value, and a second `importSnapshot` then leaves each table with its rows once. Catches dropping the `catch`, which repeats the first table's rows.
-- A delete that rejects during that cleanup still rethrows the first failure. Catches dropping the `.catch` in `deleteDataset`.
-- After an import, the snapshot's own datasets receive its item ids as a selection. Catches dropping the last line of `importSnapshot` (R13).
+- A refused or rejected write at each later stage (`createDataset` refused on the second table, `createTable` refused or rejecting, the selection rejecting) removes every dataset, and a second import after a rejected selection gives each table its rows once. Catches moving any of them out of the `try`, or not checking `createTable` (R8).
+- A delete that rejects during that cleanup still rethrows the first failure, and the next dataset is still deleted. Catches dropping the `.catch` in `deleteDataset`, or moving it around the loop.
+- After an import, the snapshot's own datasets receive its item ids as a selection. Catches dropping the selection from `importSnapshot` (R13).
 - `findImportedSnapshotIds` returns ids from every prefixed dataset and ignores `DatalogPluginData` and unrelated datasets. Catches dropping the prefix filter.
+- A failed `getAllItems` or `getListOfDataContexts` reply, whose `values` holds an error, is treated as no items or no datasets. Catches a dataset deleted mid-read stopping `init`.
 - `selectSnapshotRows` sends a snapshot's item ids to its own datasets and an empty selection to another snapshot's. Catches skipping datasets with no match, which would leave the old selection (R15).
 
 ---
@@ -329,7 +338,7 @@ Reviewed as commit reviewer, test writer, operator, and senior engineer.
 - **Commit reviewer:** each step compiles and passes alone, because the modules land before anything calls them and the Agent Sim test lands first. Checked by building the proposed modules against the unchanged `App`.
 - **Test writer:** the App harness was run for real against the unchanged component. The demo storage round trip was run with `addDataTable`, `addObject` and `readDataItem`.
 - **Operator:** the first-release-since-OIDC risk and the all-at-once promotion are now in the release step, with the rollback.
-- **Senior engineer:** `createItems` and `createDataset` throw on a refused write, so it can't look like success. That check was prose beside the code, and now sits in the code.
+- **Senior engineer:** `createItems`, `createDataset` and `createTable` throw on a refused write, so it can't look like success. That check was prose beside the code, and now sits in the code.
 - **Senior engineer:** a failed write left a partial import that a second press duplicated. `importSnapshot` now deletes the import's datasets. Run on CODAP 3.1.2 through a real timeout: no dataset or table remained, and a re-press gave each table its rows once.
 - **Commit reviewer:** the `handleGetData` snippet failed `tsc` (`importingRef` undeclared, `id` and `metadata` not in scope, a nullable storage ref), and `highlightObject` could be undefined. The snippet and bullets are corrected, compiled with the modules, and run through a throwaway `App` test.
 - **Commit reviewer:** the named JSON import added a webpack warning, so it is now a default import. A stale step number in the OIDC note is corrected.

@@ -62,7 +62,7 @@ Checked in `question-interactives` at version 1.28.0, `packages/agent-simulation
 ### Bringing a snapshot into CODAP
 
 - **R7.** A snapshot is listed like any saved object: one entry, by name, in saved order. Listing needs no extra reads.
-- **R8.** Get Data reads the index and all its tables before writing anything to CODAP, so a failed read leaves CODAP untouched. A write that CODAP refuses or doesn't answer removes every dataset of that import and shows a message, so the snapshot stays not imported and pressing Get Data again starts clean.
+- **R8.** Get Data reads the index and all its tables before writing anything to CODAP, so a failed read leaves CODAP untouched. A write that CODAP refuses or doesn't answer removes every dataset of that import and shows a message, so the snapshot stays not imported and pressing Get Data again starts clean. A selection CODAP answers with a refusal leaves the import in place, since its rows are all there.
 - **R9.** Each table with rows gets a new dataset of its own, keyed on the snapshot's object id and the table's position in the index, never on its shape. The dataset's title is `<snapshot display name>_<table name>`, such as "Data1_States". Its columns are in `cols` order, of the types in `colTypes`.
 - **R10.** Each dataset has one flat collection, named with the table's `name`, holding the table's columns and a hidden `__objectId`. There is no parent collection and no column naming the snapshot.
 - **R11.** A second snapshot always gets its own datasets, even with the same columns or the same name. Two snapshots with the same name get matching titles and stay separate. Rows from one snapshot never go into another's dataset.
