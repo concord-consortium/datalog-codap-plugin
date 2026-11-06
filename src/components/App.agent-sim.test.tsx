@@ -6,6 +6,7 @@ import {
 import { createObjectStorage } from "@concord-consortium/object-storage";
 import { App } from "./App";
 import { codapRequestStub, storageStub } from "../test/app-harness";
+import packageJson from "../../package.json";
 
 jest.mock("@concord-consortium/codap-plugin-api", () => ({
   codapInterface: { on: jest.fn(), sendRequest: jest.fn() },
@@ -139,6 +140,12 @@ describe("importing an Agent Sim recording", () => {
       .filter(resource => resource.startsWith("dataContext["));
     expect(datasetResources.every(resource => resource.startsWith("dataContext[DatalogPluginData]"))).toBe(true);
     expect((getAllItems as jest.Mock).mock.calls.every(([dataset]) => dataset === "DatalogPluginData")).toBe(true);
+  });
+
+  it("reports the version from package.json", async () => {
+    await renderWith([recording]);
+
+    expect(initializePlugin).toHaveBeenCalledWith(expect.objectContaining({ version: packageJson.version }));
   });
 
   it("takes an untyped object with one data table down the same path", async () => {

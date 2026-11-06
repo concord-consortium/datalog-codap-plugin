@@ -16,10 +16,11 @@ import {
 import { findImportedSnapshotIds, importSnapshot, selectSnapshotRows } from "../snapshot/import-snapshot";
 import { isSnapshot } from "../snapshot/multi-value-snapshot";
 
+import packageJson from "../../package.json";
+
 import "./App.css";
 
 const kPluginName = "Datalog";
-const kVersion = "0.0.3";
 const kInitialDimensions = {
   width: 300,
   height: 400
@@ -52,7 +53,7 @@ export const App = () => {
   // initialize the plugin and get the Interactive API settings
   useEffect(() => {
     const init = async () => {
-      await initializePlugin({ pluginName: kPluginName, version: kVersion, dimensions: kInitialDimensions });
+      await initializePlugin({ pluginName: kPluginName, version: packageJson.version, dimensions: kInitialDimensions });
 
       // hide the close button - this will be running in a shared CODAP doc inside Activity Player so we don't
       // want users accidentally closing it and then being unable to get it back
