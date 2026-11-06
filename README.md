@@ -2,6 +2,8 @@
 
 CODAP plugin to load linked AP object storage data.
 
+Interactives can send several typed tables at once with the [multi-value snapshot format](docs/multi-value-snapshot.md).
+
 # Development
 
 ## Getting Started
