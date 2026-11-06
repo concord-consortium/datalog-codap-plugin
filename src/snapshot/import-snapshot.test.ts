@@ -299,6 +299,16 @@ describe("import-snapshot", () => {
       expect(rowsOf(datasetName("first", 1))).toHaveLength(1);
     });
 
+    it("treats a write with no answer as refused", async () => {
+      const object = makeSnapshot("first", [words, pairs]);
+      createItemsMock.mockImplementationOnce(fakeCreateItems).mockResolvedValueOnce(undefined);
+
+      await expect(importObject(await makeStorage(object), object, "Data1"))
+        .rejects.toThrow('CODAP refused the rows of "Data1_Pairs".');
+
+      expect(datasets.size).toBe(0);
+    });
+
     it("removes every dataset when CODAP refuses the second dataset", async () => {
       const object = makeSnapshot("first", [words, pairs]);
       sendRequest.mockImplementation(async request => (
@@ -346,6 +356,17 @@ describe("import-snapshot", () => {
       expect(rowsOf(datasetName("first", 1))).toHaveLength(1);
     });
 
+    it("keeps the import when CODAP refuses the selection", async () => {
+      const object = makeSnapshot("first", [words]);
+      sendRequest.mockImplementation(async request => (
+        request.resource.endsWith(".selectionList") ? { success: false } : fakeSendRequest(request)
+      ));
+
+      await importObject(await makeStorage(object), object, "Data1");
+
+      expect(rowsOf(datasetName("first", 0))).toHaveLength(2);
+    });
+
     it("rethrows the first failure and keeps cleaning up when a delete rejects", async () => {
       const object = makeSnapshot("first", [words, pairs]);
       const failure = "timed out";
@@ -390,6 +411,20 @@ describe("import-snapshot", () => {
       expect([...await findImportedSnapshotIds()]).toEqual(["second"]);
     });
 
+    it("skips a dataset whose read rejects", async () => {
+      addDataset(datasetName("first", 0), [{ __objectId: "first" }]);
+      addDataset(datasetName("second", 0), [{ __objectId: "second" }]);
+      (getAllItems as jest.Mock).mockRejectedValueOnce("timed out");
+
+      expect([...await findImportedSnapshotIds()]).toEqual(["second"]);
+    });
+
+    it("finds nothing when the dataset list read rejects", async () => {
+      (getListOfDataContexts as jest.Mock).mockRejectedValueOnce("timed out");
+
+      expect((await findImportedSnapshotIds()).size).toBe(0);
+    });
+
     it("finds nothing when the dataset list cannot be read", async () => {
       (getListOfDataContexts as jest.Mock).mockResolvedValueOnce({ success: false, values: { error: "failed" } });
 
@@ -408,6 +443,15 @@ describe("import-snapshot", () => {
       expect(selections.get(datasetName("first", 0))).toEqual([1, 2]);
       expect(selections.get(datasetName("second", 0))).toEqual([]);
       expect(selections.has("DatalogPluginData")).toBe(false);
+    });
+
+    it("sends no selection when the dataset list cannot be read", async () => {
+      addDataset(datasetName("first", 0), [{ __objectId: "first" }]);
+      (getListOfDataContexts as jest.Mock).mockResolvedValueOnce({ success: false, values: { error: "failed" } });
+
+      await selectSnapshotRows("first");
+
+      expect(selections.size).toBe(0);
     });
 
     it("selects nothing in a dataset whose items cannot be read", async () => {

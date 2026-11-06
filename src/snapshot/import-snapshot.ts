@@ -49,8 +49,10 @@ const datasetItems = async (dataset: string): Promise<any[]> => {
 
 export const findImportedSnapshotIds = async () => {
   const ids = new Set<string>();
-  for (const name of await snapshotDatasets()) {
-    (await datasetItems(name)).forEach(item => ids.add(item.values[kObjectIdAttr]));
+  const names = await snapshotDatasets().catch(() => [] as string[]);
+  for (const name of names) {
+    const items = await datasetItems(name).catch(() => []);
+    items.forEach(item => ids.add(item.values[kObjectIdAttr]));
   }
   return ids;
 };

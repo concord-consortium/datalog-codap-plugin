@@ -103,22 +103,24 @@ export const App = () => {
         return;
       }
 
-      setObjectStorageConfig(initInteractive.objectStorageConfig);
-
       // find all the current objects imported
       const checkAllCases = async () => {
           const importedIds = await findImportedSnapshotIds();
-          const getResponse = await getAllItems(kDataContextName);
-          if (getResponse.success) {
-            getResponse.values.forEach((item: any) => {
-              if (item.values.__objectId) {
-                importedIds.add(item.values.__objectId);
-              }
-            });
+          try {
+            const getResponse = await getAllItems(kDataContextName);
+            if (getResponse.success) {
+              getResponse.values.forEach((item: any) => {
+                if (item.values.__objectId) {
+                  importedIds.add(item.values.__objectId);
+                }
+              });
+            }
+          } finally {
+            setImportedDataTableIds(importedIds);
           }
-          setImportedDataTableIds(importedIds);
       };
-      await checkAllCases();
+      await checkAllCases().catch(e => console.error("Failed to find imported data:", e));
+      setObjectStorageConfig(initInteractive.objectStorageConfig);
 
       // start listening to data context changes in CODAP
       codapInterface.on("notify", `dataContext[${kDataContextName}].case`, (msg) => {

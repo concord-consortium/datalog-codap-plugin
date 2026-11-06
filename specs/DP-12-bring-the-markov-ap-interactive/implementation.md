@@ -17,7 +17,7 @@ No dependency or lockfile changes are needed, apart from the version bump in the
 
 **Estimated diff size**: ~110 lines
 
-Mocks `@concord-consortium/codap-plugin-api`, and `createObjectStorage` to return a stub with `monitor` and `readDataItem`. The mock includes `getListOfDataContexts`, resolving to `{ success: true, values: [] }`, even though the unchanged `App` doesn't call it: without it the later `checkAllCases` throws at `list.success`, `init` stops before the listener, and this file would need editing. This harness was run against the unchanged `App`. The stored object uses the exact shape in the requirements' "What Agent Sim saves", with two images, a text item, and a table whose values differ per row and per column. Tests:
+Mocks `@concord-consortium/codap-plugin-api`, and `createObjectStorage` to return a stub with `monitor` and `readDataItem`. The mock includes `getListOfDataContexts`, resolving to `{ success: true, values: [] }`, even though the unchanged `App` doesn't call it, so this file needs no editing when `checkAllCases` starts to. This harness was run against the unchanged `App`. The stored object uses the exact shape in the requirements' "What Agent Sim saves", with two images, a text item, and a table whose values differ per row and per column. Tests:
 
 - The `dataContext` create request equals the full literal payload (name, title, both collections, every column `numeric`, hidden `__objectId`). Catches any change to type, title or collection.
 - `createItems` receives the literal items, in row order. Catches a column shift or a changed `name`.
@@ -159,8 +159,10 @@ const datasetItems = async (dataset: string): Promise<any[]> => {
 
 export const findImportedSnapshotIds = async () => {
   const ids = new Set<string>();
-  for (const name of await snapshotDatasets()) {
-    (await datasetItems(name)).forEach(item => ids.add(item.values[kObjectIdAttr]));
+  const names = await snapshotDatasets().catch(() => [] as string[]);
+  for (const name of names) {
+    const items = await datasetItems(name).catch(() => []);
+    items.forEach(item => ids.add(item.values[kObjectIdAttr]));
   }
   return ids;
 };
@@ -226,7 +228,8 @@ Tests mock the CODAP API with an in-memory list of datasets, which, like CODAP, 
 - A delete that rejects during that cleanup still rethrows the first failure, and the next dataset is still deleted. Catches dropping the `.catch` in `deleteDataset`, or moving it around the loop.
 - After an import, the snapshot's own datasets receive its item ids as a selection. Catches dropping the selection from `importSnapshot` (R13).
 - `findImportedSnapshotIds` returns ids from every prefixed dataset and ignores `DatalogPluginData` and unrelated datasets. Catches dropping the prefix filter.
-- A failed `getAllItems` or `getListOfDataContexts` reply, whose `values` holds an error, is treated as no items or no datasets. Catches a dataset deleted mid-read stopping `init`.
+- A failed `getAllItems` or `getListOfDataContexts` reply, whose `values` holds an error, is treated as no items or no datasets. Catches a dataset deleted mid-read stopping `init`. `findImportedSnapshotIds` treats a rejected read the same way.
+- A selection CODAP refuses keeps the import. Catches treating a lost highlight as a failed import.
 - `selectSnapshotRows` sends a snapshot's item ids to its own datasets and an empty selection to another snapshot's. Catches skipping datasets with no match, which would leave the old selection (R15).
 
 ---
@@ -238,12 +241,14 @@ Tests mock the CODAP API with an in-memory list of datasets, which, like CODAP, 
 **Files affected**:
 - `src/components/App.tsx`
 - `src/components/App.snapshot.test.tsx`: new
+- `src/test/app-harness.ts`: new, the CODAP and storage stubs both App tests share
 
 **Estimated diff size**: ~180 lines
 
 - Add `metadata: StoredObjectMetadata` to `StoredObjectDataTable`, set in the `monitor` callback. Listing logic stays as it is, since a snapshot has a data table and no image.
 - Add `const importingRef = useRef(false);` beside the other refs.
-- `checkAllCases`: start from `await findImportedSnapshotIds()`, add recording ids when `getAllItems` succeeds, and always set the state. Today's `if` around the state update moves inward so that a document with snapshots and no `DatalogPluginData` still works. With no snapshots the result is the same.
+- `checkAllCases`: start from `await findImportedSnapshotIds()`, add recording ids when `getAllItems` succeeds, and always set the state, even if that read rejects. Today's `if` around the state update moves inward so that a document with snapshots and no `DatalogPluginData` still works. With no snapshots the result is the same.
+- `init`: `setObjectStorageConfig` moves after `await checkAllCases()`, which logs a rejection, so the list and Get Data appear only once the imported state is known (R14), and still appear if that read rejects. Otherwise a press during the scan repeats an imported snapshot's rows.
 - `highlightDataSet`: when `highlightObject && isSnapshot(highlightObject.metadata)`, call `selectSnapshotRows(id)` and return.
 - `handleGetData`: after finding the selected object, when it is a snapshot, run this and return:
 
@@ -276,6 +281,8 @@ Tests, through the same harness as the Agent Sim test, whose assertions stay gre
 - A malformed index alerts and sends nothing. Catches a refusal that isn't caught.
 - A `createItems` rejecting with a string alerts exactly the plain sentence, and Get Data stays enabled. Catches `(e as Error).message`, which shows "undefined", and marking a failed import as imported.
 - A snapshot found at load shows as imported, with `DatalogPluginData` absent. Catches leaving the state update inside the `if`.
+- No list shows while the load scan runs, and the list still shows when it rejects. Catches the list appearing before the imported state is known, or never.
+- A snapshot dataset that can't be read at load leaves a recording's imported state intact. Catches a rejected snapshot read stopping `checkAllCases` (R17).
 - Listing a snapshot calls no `readDataItem` (R7). Catches reading the index to list.
 - Clicking an imported snapshot selects by id; clicking a recording still selects by name. Catches the branch applying to both.
 
@@ -297,7 +304,7 @@ Covers R1 to R4 and R9 to R12 for a writer: the object, tables, the index, a com
 
 ### Release 0.0.4
 
-**Summary**: Follows the repo's convention of a separate version PR after the feature merges. `kVersion` becomes `packageJson.version`, with `import packageJson from "../../package.json"`, so the version lives in one place (R20). It is a default import because webpack warns on a named import from JSON. Checked: `tsc` passes, the production build has no warning, and the bundle takes in only the version, not the rest of `package.json`. `App.agent-sim.test.tsx` gains one assertion, that `initializePlugin` receives `package.json`'s version. Catches a hardcoded version coming back.
+**Summary**: The repo's convention is a separate version PR after the feature merges. Here the two version commits sit at the end of the DP-12 branch, so they can ship with the feature or move to their own PR. `kVersion` becomes `packageJson.version`, with `import packageJson from "../../package.json"`, so the version lives in one place (R20). It is a default import because webpack warns on a named import from JSON. Checked: `tsc` passes, the production build has no warning, and the bundle takes in only the version, not the rest of `package.json`. `App.agent-sim.test.tsx` gains one assertion, that `initializePlugin` receives `package.json`'s version. Catches a hardcoded version coming back.
 
 **Files affected**:
 - `package.json`, `package-lock.json`: version only, in a commit of their own

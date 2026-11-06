@@ -65,10 +65,14 @@ const datasetRequests = () => sendRequest.mock.calls
   .map(([request]) => request)
   .filter(request => request.resource.startsWith("dataContext"));
 
-const renderWith = async (objects: any[]) => {
+const mountWith = (objects: any[]) => {
   readDataItem = jest.fn(async (_objectId: string, itemId: string) => itemData[itemId]);
   (createObjectStorage as jest.Mock).mockReturnValue(storageStub(objects, readDataItem));
   render(<App />);
+};
+
+const renderWith = async (objects: any[]) => {
+  mountWith(objects);
   await screen.findByText("Get Data");
 };
 
@@ -194,6 +198,50 @@ describe("bringing in a snapshot", () => {
     await waitFor(() => expect(getDataButton()).toHaveProperty("disabled", true));
 
     expect(datasetRequests().find(request => request.resource === "dataContext").values.title).toBe("Shown_Words");
+  });
+
+  it("shows no list until it knows what is imported", async () => {
+    let finishScan: (result: any) => void = () => undefined;
+    (getListOfDataContexts as jest.Mock).mockReturnValue(new Promise(resolve => { finishScan = resolve; }));
+    mountWith([snapshot]);
+    await waitFor(() => expect(getListOfDataContexts).toHaveBeenCalled());
+
+    expect(screen.queryByText("Get Data")).toBeNull();
+
+    finishScan({ success: true, values: [] });
+
+    await screen.findByText("Get Data");
+  });
+
+  it("still shows the list when the load scan rejects", async () => {
+    (getAllItems as jest.Mock).mockRejectedValue("timed out");
+    await renderWith([snapshot]);
+
+    expect(console.error).toHaveBeenCalledWith("Failed to find imported data:", "timed out");
+  });
+
+  it("keeps a snapshot's imported state when the DatalogPluginData read rejects", async () => {
+    codapItems.set(kDataset, [{ id: 1, values: { __objectId: snapshot.id } }]);
+    (getAllItems as jest.Mock).mockImplementation(async (dataset: string) => {
+      if (dataset === "DatalogPluginData") throw new Error("timed out");
+      return { success: true, values: codapItems.get(dataset) };
+    });
+    await renderWith([snapshot]);
+
+    fireEvent.click(screen.getByText("Data1"));
+
+    await waitFor(() => expect(getDataButton()).toHaveProperty("disabled", true));
+  });
+
+  it("keeps a recording's imported state when a snapshot dataset cannot be read", async () => {
+    codapItems.set(kDataset, [{ id: 1, values: { __objectId: snapshot.id } }]);
+    codapItems.set("DatalogPluginData", [{ id: 2, values: { name: "Recording", __objectId: recording.id } }]);
+    (getAllItems as jest.Mock).mockRejectedValueOnce("timed out");
+    await renderWith([snapshot, recording]);
+
+    fireEvent.click(screen.getByText("Recording"));
+
+    await waitFor(() => expect(getDataButton()).toHaveProperty("disabled", true));
   });
 
   it("lists a snapshot with no reads", async () => {
