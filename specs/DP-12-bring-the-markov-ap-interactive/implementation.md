@@ -61,7 +61,7 @@ const isColType = (value: unknown): value is ColType => kColTypes.includes(value
 
 const parseTable = (metadata: StoredObjectMetadata, entry: any): SnapshotTable => {
   const item = metadata.items[entry?.id];
-  if (item?.type !== "dataTable") {
+  if (typeof entry?.id !== "string" || item?.type !== "dataTable") {
     throw new Error(`The index names "${entry?.id}", which is not a data table.`);
   }
   const { name, cols } = item as StoredObjectDataTableMetadata;
