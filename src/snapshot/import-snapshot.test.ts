@@ -1,5 +1,5 @@
 import {
-  codapInterface, createItems, createTable, getAllItems, getListOfDataContexts
+  codapInterface, createItems, createTable, getAllItems, getItemByIndex, getListOfDataContexts
 } from "@concord-consortium/codap-plugin-api";
 import { DemoObjectStorage, StoredObject } from "@concord-consortium/object-storage";
 import { datasetName, findImportedSnapshotIds, importSnapshot, selectSnapshotRows } from "./import-snapshot";
@@ -9,6 +9,7 @@ jest.mock("@concord-consortium/codap-plugin-api", () => ({
   createItems: jest.fn(),
   createTable: jest.fn(),
   getAllItems: jest.fn(),
+  getItemByIndex: jest.fn(),
   getListOfDataContexts: jest.fn()
 }));
 
@@ -116,6 +117,10 @@ describe("import-snapshot", () => {
     (getAllItems as jest.Mock).mockImplementation(async (name: string) => (
       { success: true, values: datasets.get(name)?.items ?? [] }
     ));
+    (getItemByIndex as jest.Mock).mockImplementation(async (name: string, index: number) => {
+      const item = datasets.get(name)?.items[index];
+      return item ? { success: true, values: item } : { success: false, values: { error: "not found" } };
+    });
   });
 
   describe("datasetName", () => {
@@ -403,10 +408,25 @@ describe("import-snapshot", () => {
       expect([...await findImportedSnapshotIds()].sort()).toEqual(["first", "second"]);
     });
 
-    it("skips a dataset whose items cannot be read", async () => {
+    it("reads one item from each dataset, not all of them", async () => {
+      addDataset(datasetName("first", 0), [{ __objectId: "first" }, { __objectId: "first" }]);
+
+      await findImportedSnapshotIds();
+
+      expect((getItemByIndex as jest.Mock).mock.calls).toEqual([[datasetName("first", 0), 0]]);
+      expect(getAllItems).not.toHaveBeenCalled();
+    });
+
+    it("skips a dataset with no rows", async () => {
+      addDataset(datasetName("first", 0), []);
+
+      expect((await findImportedSnapshotIds()).size).toBe(0);
+    });
+
+    it("skips a dataset whose item cannot be read", async () => {
       addDataset(datasetName("first", 0), [{ __objectId: "first" }]);
       addDataset(datasetName("second", 0), [{ __objectId: "second" }]);
-      (getAllItems as jest.Mock).mockResolvedValueOnce({ success: false, values: { error: "not found" } });
+      (getItemByIndex as jest.Mock).mockResolvedValueOnce({ success: false, values: { error: "not found" } });
 
       expect([...await findImportedSnapshotIds()]).toEqual(["second"]);
     });
@@ -414,7 +434,7 @@ describe("import-snapshot", () => {
     it("skips a dataset whose read rejects", async () => {
       addDataset(datasetName("first", 0), [{ __objectId: "first" }]);
       addDataset(datasetName("second", 0), [{ __objectId: "second" }]);
-      (getAllItems as jest.Mock).mockRejectedValueOnce("timed out");
+      (getItemByIndex as jest.Mock).mockRejectedValueOnce("timed out");
 
       expect([...await findImportedSnapshotIds()]).toEqual(["second"]);
     });

@@ -1,6 +1,6 @@
 import { StoredObjectDataTableMetadata, StoredObjectMetadata } from "@concord-consortium/object-storage";
 
-export const kSnapshotSubType = "multi-value-snapshot";
+const kSnapshotSubType = "multi-value-snapshot";
 export const kSnapshotIndexItemId = "tables";
 export const kObjectIdAttr = "__objectId";
 const kReservedCols = [kObjectIdAttr, "__id__"];

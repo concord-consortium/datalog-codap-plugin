@@ -55,6 +55,8 @@ The Datalog plugin learns a general saved format, the multi-value snapshot, that
   - The table header shows a collection's `name`, not its `title`, so the collection takes the table's name. A name with a space works.
   - `create item` treats a top-level `id` on an item as the item's own id. A column named `id` sent that way loses rows: with repeated values, a later row overwrites an earlier one and the item ids come back `null`. Sent as `{ values: { ... } }`, the same column arrives intact, so snapshot rows always use that shape.
   - `delete dataContext[<name>]` removes the dataset and its open case table.
+  - A value of only whitespace arrives empty: `" "` comes back as `""`. Column names with spaces work.
+  - `get dataContext[<name>].item[0]` returns the first remaining item. With no rows left it answers `success: false`.
 - Dataset identity must be recoverable after reload, so the dataset name is built from the object id and the table's index position, with a fixed prefix that identifies snapshot datasets in `dataContextList`. A table's name or id cannot go in the name directly: resources are written `dataContext[<name>]`, so writer text is free text in the wrong place.
 - CODAP's `create dataContext` returns the existing dataset for a repeated name, so a key that repeated across sends would silently merge them, and a retry after a partial import would add its rows a second time. This is why R8 removes the datasets.
 - `codapInterface.sendRequest` rejects after 2 seconds with no reply, with a plain string holding the whole request (878 KB at 12,500 rows), not an `Error`, while CODAP goes on to finish the work. With the plugin on a different site from CODAP and the CPU throttled 6 times, a 12,500-row `create item` hit this: its rows landed, the next table was never started, and the plugin reported failure. With the plugin on a `concord.org` host, as deployed, plugin and CODAP share a thread, and requests of up to 12 seconds succeeded, so this should be rare in production, but local development on `localhost` can show it.
@@ -101,7 +103,7 @@ Checked in `question-interactives` at version 1.28.0, `packages/agent-simulation
 
 ## Not Yet Implemented
 
-The steps below follow the feature's merge.
+The steps below finish the release.
 
 - End-to-end check: a branch deploy (DP-12's own before merge, or `branch/main/` after it) on a copy of staging activity 1458 with the Markov interactive in place of Agent Sim, using a snapshot from MARK-18's branch build, and on staging activity 1458, the real Agent Sim activity. This is the first run of the real `App.tsx` load path, Firestore and the Activity Player. The import modules were run in CODAP 3.1.2 with demo storage.
 - Bump the version to 0.0.4 in `package.json` and `package-lock.json`, in its own release PR, once the check passes.
@@ -164,7 +166,7 @@ Timeouts on `sendRequest`, which should be rare on a `concord.org` host, are acc
 
 ### Review decisions
 
-Each of these came from running the proposed or built code, and each is reflected in the code.
+Each of these is reflected in the code, and was run in CODAP 3.1.2 where the Technical Notes say so.
 
 - A collection named, not titled, after the table is what the case table's header shows (R10).
 - The index's `subType` was never read, so it left the format.
@@ -173,5 +175,6 @@ Each of these came from running the proposed or built code, and each is reflecte
 - R4 refuses `__id__`, an empty column name, a table named twice, and a non-string index id. On CODAP 3.1.2 the first collapses rows and the second is dropped with `success: true`.
 - A failed write removes the import's datasets, so a retry starts clean (R8). `createDataset`, `createItems` and `createTable` are all checked, and the selection sits inside the same cleanup: one that gets no answer rolls the import back, because a retry would otherwise repeat every row. One CODAP answers with a refusal keeps the import, since only the highlight is lost.
 - CODAP's failed replies carry `values: { error }`, so reads test `success` before using `values`. A rejected read during the load scan counts as no items.
+- The load scan reads one item from each snapshot dataset, not every row, since all of a dataset's rows share one `__objectId`. A dataset with every row deleted counts as not imported.
 - The list and Get Data appear only once the imported state is known, so a press during the load scan can't repeat a snapshot's rows. They still appear if that scan fails, and a failed read of snapshot datasets or of `DatalogPluginData` doesn't lose the other's imported ids.
 - `kVersion` is a default import of `package.json`, because webpack warns on a named import from JSON. The bundle takes in only the version.

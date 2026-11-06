@@ -1,7 +1,8 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
-  codapInterface, createItems, createTable, getAllItems, getDataContext, getListOfDataContexts, initializePlugin
+  codapInterface, createItems, createTable, getAllItems, getDataContext, getItemByIndex, getListOfDataContexts,
+  initializePlugin
 } from "@concord-consortium/codap-plugin-api";
 import { createObjectStorage } from "@concord-consortium/object-storage";
 import { App } from "./App";
@@ -14,6 +15,7 @@ jest.mock("@concord-consortium/codap-plugin-api", () => ({
   createTable: jest.fn(),
   getAllItems: jest.fn(),
   getDataContext: jest.fn(),
+  getItemByIndex: jest.fn(),
   getListOfDataContexts: jest.fn(),
   initializePlugin: jest.fn()
 }));
@@ -97,6 +99,9 @@ describe("bringing in a snapshot", () => {
     getDataContextMock.mockResolvedValue({ success: false });
     (getAllItems as jest.Mock).mockImplementation(async (dataset: string) => (
       codapItems.has(dataset) ? { success: true, values: codapItems.get(dataset) } : { success: false }
+    ));
+    (getItemByIndex as jest.Mock).mockImplementation(async (dataset: string, index: number) => (
+      { success: true, values: codapItems.get(dataset)?.[index] }
     ));
     (getListOfDataContexts as jest.Mock).mockImplementation(async () => (
       { success: true, values: [...codapItems.keys()].map(name => ({ name })) }
@@ -236,7 +241,7 @@ describe("bringing in a snapshot", () => {
   it("keeps a recording's imported state when a snapshot dataset cannot be read", async () => {
     codapItems.set(kDataset, [{ id: 1, values: { __objectId: snapshot.id } }]);
     codapItems.set("DatalogPluginData", [{ id: 2, values: { name: "Recording", __objectId: recording.id } }]);
-    (getAllItems as jest.Mock).mockRejectedValueOnce("timed out");
+    (getItemByIndex as jest.Mock).mockRejectedValueOnce("timed out");
     await renderWith([snapshot, recording]);
 
     fireEvent.click(screen.getByText("Recording"));

@@ -1,5 +1,5 @@
 import {
-  codapInterface, createItems, createTable, getAllItems, getListOfDataContexts
+  codapInterface, createItems, createTable, getAllItems, getItemByIndex, getListOfDataContexts
 } from "@concord-consortium/codap-plugin-api";
 import { IObjectStorage, StoredObjectMetadata } from "@concord-consortium/object-storage";
 import { kObjectIdAttr, kSnapshotIndexItemId, parseSnapshotTables, SnapshotTable } from "./multi-value-snapshot";
@@ -51,8 +51,8 @@ export const findImportedSnapshotIds = async () => {
   const ids = new Set<string>();
   const names = await snapshotDatasets().catch(() => [] as string[]);
   for (const name of names) {
-    const items = await datasetItems(name).catch(() => []);
-    items.forEach(item => ids.add(item.values[kObjectIdAttr]));
+    const first: any = await getItemByIndex(name, 0).catch(() => undefined);
+    if (first?.success) ids.add(first.values.values[kObjectIdAttr]);
   }
   return ids;
 };
