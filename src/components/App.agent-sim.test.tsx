@@ -5,6 +5,7 @@ import {
 } from "@concord-consortium/codap-plugin-api";
 import { createObjectStorage } from "@concord-consortium/object-storage";
 import { App } from "./App";
+import { codapRequestStub, storageStub } from "../test/app-harness";
 
 jest.mock("@concord-consortium/codap-plugin-api", () => ({
   codapInterface: { on: jest.fn(), sendRequest: jest.fn() },
@@ -81,13 +82,9 @@ const sendRequest = codapInterface.sendRequest as jest.Mock;
 const sentRequests = () => sendRequest.mock.calls.map(([request]) => request);
 
 const renderWith = async (objects: any[]) => {
-  (createObjectStorage as jest.Mock).mockReturnValue({
-    monitor: jest.fn(async (_interactiveId: string, callback: (stored: any[]) => void) => {
-      callback(objects);
-      return () => undefined;
-    }),
-    readDataItem: jest.fn(async (_objectId: string, itemId: string) => itemData[itemId])
-  });
+  (createObjectStorage as jest.Mock).mockReturnValue(
+    storageStub(objects, jest.fn(async (_objectId: string, itemId: string) => itemData[itemId]))
+  );
   render(<App />);
   await screen.findByText("Get Data");
 };
@@ -101,21 +98,7 @@ const getData = async (name: string) => {
 describe("importing an Agent Sim recording", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    sendRequest.mockImplementation(async (request: any) => {
-      if (request.resource === "interactiveApi") {
-        return {
-          success: true,
-          values: {
-            available: true,
-            initInteractive: {
-              objectStorageConfig: { version: 1, type: "demo" },
-              linkedInteractives: [{ id: "source", label: "data_source_interactive" }]
-            }
-          }
-        };
-      }
-      return { success: true };
-    });
+    sendRequest.mockImplementation(codapRequestStub);
     (getAllItems as jest.Mock).mockResolvedValue({ success: false });
     (getDataContext as jest.Mock).mockResolvedValue({ success: false });
     (getListOfDataContexts as jest.Mock).mockResolvedValue({ success: true, values: [] });

@@ -106,7 +106,7 @@ Checked in `question-interactives` at version 1.28.0, `packages/agent-simulation
 ## Out of Scope
 
 - Changing what Agent Sim saves or how its recordings import, including the dropped-columns limit.
-- The existing bug where the row listener at `App.tsx:118` subscribes to a resource CODAP never sends. Snapshots share its effects until it is fixed separately.
+- The existing bug where the row listener in `App.tsx` subscribes to a resource CODAP never sends. Snapshots share its effects until it is fixed separately.
 - A library release of `object-storage`. Column types beyond categorical and numeric.
 - Which tables, columns and row meanings Markov sends, and size guarding: MARK-18.
 - Placing case tables. CODAP's own placement applies, so once a document is full, later tables pile on top of each other until a student moves them.

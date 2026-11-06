@@ -10,8 +10,11 @@ import {
 
 import {
   createObjectStorage, IObjectStorage, FirebaseObjectStorageConfig, StoredObjectDataTableMetadata,
-  StoredImageMetadata
+  StoredImageMetadata, StoredObjectMetadata
 } from "@concord-consortium/object-storage";
+
+import { findImportedSnapshotIds, importSnapshot, selectSnapshotRows } from "../snapshot/import-snapshot";
+import { isSnapshot } from "../snapshot/multi-value-snapshot";
 
 import "./App.css";
 
@@ -26,6 +29,7 @@ const kDataContextName = "DatalogPluginData";
 interface StoredObjectDataTable {
   name: string;
   objectId: string;
+  metadata: StoredObjectMetadata;
   dataTableMetadata: StoredObjectDataTableMetadata;
   dataTableItemId: string;
   thumbnailMetadata?: StoredImageMetadata;
@@ -37,6 +41,7 @@ export const App = () => {
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [objectStorageConfig, setObjectStorageConfig] = useState<FirebaseObjectStorageConfig | null>(null);
   const objectStorageRef = useRef<IObjectStorage | null>(null);
+  const importingRef = useRef(false);
   const [storedObjectDataTables, setStoredObjectDataTables] = useState<StoredObjectDataTable[]>([]);
   const [selectedDataTableObjectId, setSelectedDataTableObjectId] = useState<string | null>(null);
   const [importedDataTableIds, setImportedDataTableIds] = useState<Set<string>>(new Set());
@@ -101,16 +106,16 @@ export const App = () => {
 
       // find all the current objects imported
       const checkAllCases = async () => {
+          const importedIds = await findImportedSnapshotIds();
           const getResponse = await getAllItems(kDataContextName);
           if (getResponse.success) {
-            const importedIds = new Set<string>();
             getResponse.values.forEach((item: any) => {
               if (item.values.__objectId) {
                 importedIds.add(item.values.__objectId);
               }
             });
-            setImportedDataTableIds(importedIds);
           }
+          setImportedDataTableIds(importedIds);
       };
       await checkAllCases();
 
@@ -191,6 +196,7 @@ export const App = () => {
           newStoredObjectDataTables.push({
             name,
             objectId: obj.id,
+            metadata: obj.metadata,
             dataTableMetadata: dataTableMetadata as StoredObjectDataTableMetadata,
             dataTableItemId,
             thumbnailItemId,
@@ -238,6 +244,10 @@ export const App = () => {
 
   const highlightDataSet = useCallback(async (id: string) => {
     const highlightObject = storedObjectDataTables.find(dt => dt.objectId === id);
+    if (highlightObject && isSnapshot(highlightObject.metadata)) {
+      await selectSnapshotRows(id);
+      return;
+    }
 
     const getResponse = await getAllItems(kDataContextName);
     if (getResponse.success) {
@@ -266,6 +276,24 @@ export const App = () => {
     const selectedDataTableObject = storedObjectDataTables.find(dt => dt.objectId === selectedDataTableObjectId);
     if (!selectedDataTableObject) {
       alert("Failed to get the selected object.");
+      return;
+    }
+
+    const { metadata, name } = selectedDataTableObject;
+    if (isSnapshot(metadata)) {
+      const storage = objectStorageRef.current;
+      if (!storage || importingRef.current) return;
+      importingRef.current = true;
+      try {
+        await importSnapshot(storage, selectedDataTableObjectId, name, metadata);
+        setImportedDataTableIds(prev => new Set(prev).add(selectedDataTableObjectId));
+      } catch (e) {
+        console.error("Failed to import snapshot:", e);
+        const detail = e instanceof Error ? ` ${e.message}` : "";
+        alert(`This saved data could not be brought into CODAP.${detail}`);
+      } finally {
+        importingRef.current = false;
+      }
       return;
     }
 
