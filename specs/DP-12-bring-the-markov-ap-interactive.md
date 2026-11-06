@@ -55,7 +55,7 @@ The Datalog plugin learns a general saved format, the multi-value snapshot, that
   - The table header shows a collection's `name`, not its `title`, so the collection takes the table's name. A name with a space works.
   - `create item` treats a top-level `id` on an item as the item's own id. A column named `id` sent that way loses rows: with repeated values, a later row overwrites an earlier one and the item ids come back `null`. Sent as `{ values: { ... } }`, the same column arrives intact, so snapshot rows always use that shape.
   - `delete dataContext[<name>]` removes the dataset and its open case table.
-  - A value of only whitespace arrives empty: `" "` comes back as `""`. Column names with spaces work.
+  - Values lose leading and trailing whitespace, and inner spaces stay: `" - "` comes back as `"-"`, `"  a  b  "` as `"a  b"`, and `" "` as `""`. Column names with spaces work.
   - `get dataContext[<name>].item[0]` returns the first remaining item. With no rows left it answers `success: false`.
 - Dataset identity must be recoverable after reload, so the dataset name is built from the object id and the table's index position, with a fixed prefix that identifies snapshot datasets in `dataContextList`. A table's name or id cannot go in the name directly: resources are written `dataContext[<name>]`, so writer text is free text in the wrong place.
 - CODAP's `create dataContext` returns the existing dataset for a repeated name, so a key that repeated across sends would silently merge them, and a retry after a partial import would add its rows a second time. This is why R8 removes the datasets.

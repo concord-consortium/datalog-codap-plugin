@@ -17,7 +17,7 @@ Each table is one `addDataTable` item:
 - `id`: any item id except `tables`.
 - `name`: the table's own name, without the snapshot's.
 - `cols`: the column names, in order.
-- `rows`: arrays parallel to `cols`, holding real JSON types. A short row leaves its remaining columns empty, and a value of only whitespace arrives empty in CODAP.
+- `rows`: arrays parallel to `cols`, holding real JSON types. A short row leaves its remaining columns empty. CODAP trims leading and trailing whitespace from values, so a value of only whitespace arrives empty, while inner spaces stay.
 
 Item `subType` is not read. Each table is stored as its own document, so the 1 MiB limit applies per table, and the writer is responsible for staying under it.
 
