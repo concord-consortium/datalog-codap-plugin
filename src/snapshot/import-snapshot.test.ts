@@ -235,6 +235,61 @@ describe("import-snapshot", () => {
       expect(rowsOf(datasetName("first", 1))).toHaveLength(2);
     });
 
+    it.each([
+      ["a null row", { rows: [["the"], null] }],
+      ["a row that is not a list", { rows: [["the"], "cat"] }],
+      ["rows that are not a list", { rows: "the" }]
+    ])("sends CODAP nothing for %s", async (_description, stored) => {
+      const object = makeSnapshot("first", [words, pairs]);
+      const storage = await makeStorage(object);
+      const realRead = storage.readDataItem.bind(storage);
+      jest.spyOn(storage, "readDataItem").mockImplementation(
+        async (objectId, itemId) => itemId === "pairs" ? stored : realRead(objectId, itemId)
+      );
+
+      await expect(importObject(storage, object, "Data1")).rejects.toThrow('Table "Pairs" has invalid rows.');
+
+      expect(sendRequest).not.toHaveBeenCalled();
+    });
+
+    it("refuses to write when one of its datasets already holds rows", async () => {
+      const object = makeSnapshot("first", [words, pairs]);
+      addDataset(datasetName("first", 1), [{ __objectId: "first" }]);
+
+      await expect(importObject(await makeStorage(object), object, "Data1"))
+        .rejects.toThrow("It is already in CODAP.");
+
+      expect(sendRequest).not.toHaveBeenCalled();
+      expect(createItemsMock).not.toHaveBeenCalled();
+      expect(rowsOf(datasetName("first", 1))).toHaveLength(1);
+    });
+
+    it("writes nothing more on a retry after a delete failed", async () => {
+      const object = makeSnapshot("first", [words, pairs]);
+      const storage = await makeStorage(object);
+      createItemsMock.mockImplementationOnce(fakeCreateItems).mockRejectedValueOnce("timed out");
+      sendRequest.mockImplementation(async request => {
+        if (request.action === "delete") throw new Error("delete failed");
+        return fakeSendRequest(request);
+      });
+      await expect(importObject(storage, object, "Data1")).rejects.toBe("timed out");
+
+      await expect(importObject(storage, object, "Data1")).rejects.toThrow("It is already in CODAP.");
+
+      expect(rowsOf(datasetName("first", 0))).toHaveLength(2);
+    });
+
+    it("fills an existing empty dataset and keeps it when the import fails", async () => {
+      const object = makeSnapshot("first", [words, pairs]);
+      addDataset(datasetName("first", 0), []);
+      createItemsMock.mockImplementationOnce(fakeCreateItems).mockRejectedValueOnce("timed out");
+
+      await expect(importObject(await makeStorage(object), object, "Data1")).rejects.toBe("timed out");
+
+      expect(datasets.has(datasetName("first", 0))).toBe(true);
+      expect(datasets.has(datasetName("first", 1))).toBe(false);
+    });
+
     it("skips a table whose stored item has no rows", async () => {
       const object = makeSnapshot("first", [empty, words]);
       const storage = await makeStorage(object);
@@ -463,6 +518,17 @@ describe("import-snapshot", () => {
       expect(selections.get(datasetName("first", 0))).toEqual([1, 2]);
       expect(selections.get(datasetName("second", 0))).toEqual([]);
       expect(selections.has("DatalogPluginData")).toBe(false);
+      expect((getAllItems as jest.Mock).mock.calls).toEqual([[datasetName("first", 0)]]);
+    });
+
+    it("does not take a dataset of an id that starts with this one for its own", async () => {
+      addDataset(datasetName("first", 0), [{ __objectId: "first" }]);
+      addDataset(datasetName("first_1", 0), [{ __objectId: "first_1" }]);
+
+      await selectSnapshotRows("first");
+
+      expect((getAllItems as jest.Mock).mock.calls).toEqual([[datasetName("first", 0)]]);
+      expect(selections.get(datasetName("first_1", 0))).toEqual([]);
     });
 
     it("sends no selection when the dataset list cannot be read", async () => {

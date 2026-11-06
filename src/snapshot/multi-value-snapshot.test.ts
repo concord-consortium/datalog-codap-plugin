@@ -107,7 +107,7 @@ describe("parseSnapshotTables", () => {
       .toThrow('Table "T" has a column with no name.');
   });
 
-  it.each(["__objectId", "__id__"])("refuses the reserved column %s", col => {
+  it.each(["__objectId", "__id__", "__proto__"])("refuses the reserved column %s", col => {
     expect(() => parseSnapshotTables(metadataWithCols(["a", col]), indexFor(["numeric", "numeric"])))
       .toThrow('Table "T" uses a reserved column name.');
   });

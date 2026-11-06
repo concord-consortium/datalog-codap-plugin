@@ -8,6 +8,11 @@ const kDatasetPrefix = "DatalogSnapshotTable_";
 
 export const datasetName = (objectId: string, tableIndex: number) => `${kDatasetPrefix}${objectId}_${tableIndex}`;
 
+const isDatasetOf = (dataset: string, objectId: string) => {
+  const prefix = `${kDatasetPrefix}${objectId}_`;
+  return dataset.startsWith(prefix) && /^\d+$/.test(dataset.slice(prefix.length));
+};
+
 const requireSuccess = async (request: Promise<unknown>, what: string) => {
   const result = await request as { success?: boolean } | undefined;
   if (!result?.success) throw new Error(`CODAP refused ${what}.`);
@@ -59,7 +64,7 @@ export const findImportedSnapshotIds = async () => {
 
 export const selectSnapshotRows = async (objectId: string) => {
   for (const name of await snapshotDatasets()) {
-    const items = await datasetItems(name);
+    const items = isDatasetOf(name, objectId) ? await datasetItems(name) : [];
     const ids = items.filter(item => item.values[kObjectIdAttr] === objectId).map(item => item.id);
     await codapInterface.sendRequest({ action: "create", resource: `dataContext[${name}].selectionList`, values: ids });
   }
@@ -73,10 +78,19 @@ export const importSnapshot = async (
   const read = await Promise.all(tables.map(async (table, tableIndex) => {
     const data = await storage.readDataItem(objectId, table.id);
     if (!data) throw new Error(`Table "${table.name}" could not be read.`);
-    return { table, tableIndex, rows: (data.rows ?? []) as any[][] };
+    const rows: any[][] = data.rows ?? [];
+    if (!Array.isArray(rows) || !rows.every(Array.isArray)) throw new Error(`Table "${table.name}" has invalid rows.`);
+    return { table, tableIndex, rows };
   }));
   const withRows = read.filter(({ rows }) => rows.length > 0);
   if (withRows.length === 0) throw new Error("The snapshot has no rows.");
+
+  const existing = new Set(await snapshotDatasets());
+  const datasets = withRows.map(({ tableIndex }) => datasetName(objectId, tableIndex));
+  for (const dataset of datasets.filter(name => existing.has(name))) {
+    const first: any = await getItemByIndex(dataset, 0);
+    if (first.success) throw new Error("It is already in CODAP.");
+  }
 
   try {
     for (const { table, tableIndex, rows } of withRows) {
@@ -93,7 +107,7 @@ export const importSnapshot = async (
     }
     await selectSnapshotRows(objectId);
   } catch (e) {
-    for (const { tableIndex } of withRows) await deleteDataset(datasetName(objectId, tableIndex));
+    for (const dataset of datasets.filter(name => !existing.has(name))) await deleteDataset(dataset);
     throw e;
   }
 };

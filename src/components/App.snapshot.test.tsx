@@ -100,9 +100,10 @@ describe("bringing in a snapshot", () => {
     (getAllItems as jest.Mock).mockImplementation(async (dataset: string) => (
       codapItems.has(dataset) ? { success: true, values: codapItems.get(dataset) } : { success: false }
     ));
-    (getItemByIndex as jest.Mock).mockImplementation(async (dataset: string, index: number) => (
-      { success: true, values: codapItems.get(dataset)?.[index] }
-    ));
+    (getItemByIndex as jest.Mock).mockImplementation(async (dataset: string, index: number) => {
+      const item = codapItems.get(dataset)?.[index];
+      return { success: !!item, values: item };
+    });
     (getListOfDataContexts as jest.Mock).mockImplementation(async () => (
       { success: true, values: [...codapItems.keys()].map(name => ({ name })) }
     ));

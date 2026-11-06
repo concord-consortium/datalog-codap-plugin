@@ -3,7 +3,7 @@ import { StoredObjectDataTableMetadata, StoredObjectMetadata } from "@concord-co
 const kSnapshotSubType = "multi-value-snapshot";
 export const kSnapshotIndexItemId = "tables";
 export const kObjectIdAttr = "__objectId";
-const kReservedCols = [kObjectIdAttr, "__id__"];
+const kReservedCols = [kObjectIdAttr, "__id__", "__proto__"];
 
 const kColTypes = ["categorical", "numeric"] as const;
 type ColType = typeof kColTypes[number];

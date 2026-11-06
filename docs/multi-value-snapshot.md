@@ -73,7 +73,7 @@ await objectStorage.add(snapshot);
 ## Reserved names
 
 - Item id `tables` is the index.
-- Columns may not be named `__objectId` or `__id__`.
+- Columns may not be named `__objectId`, `__id__` or `__proto__`.
 
 ## What is refused
 
@@ -86,6 +86,8 @@ The plugin shows a message and writes nothing to CODAP when:
 - `cols` repeats a name or holds an empty name
 - `cols` uses a reserved name
 - every table is empty
+- a table's `rows` are not arrays of arrays
+- any of the snapshot's datasets already holds rows
 
 An object with no data table at all is not listed, so no message appears.
 
