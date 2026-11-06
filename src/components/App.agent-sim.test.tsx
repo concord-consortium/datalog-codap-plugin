@@ -6,7 +6,6 @@ import {
 import { createObjectStorage } from "@concord-consortium/object-storage";
 import { App } from "./App";
 import { codapRequestStub, storageStub } from "../test/app-harness";
-import packageJson from "../../package.json";
 
 jest.mock("@concord-consortium/codap-plugin-api", () => ({
   codapInterface: { on: jest.fn(), sendRequest: jest.fn() },
@@ -19,6 +18,8 @@ jest.mock("@concord-consortium/codap-plugin-api", () => ({
 }));
 
 jest.mock("@concord-consortium/object-storage", () => ({ createObjectStorage: jest.fn() }));
+
+jest.mock("../../package.json", () => ({ version: "9.8.7" }));
 
 const kRecordingName = "Wolves: 12s (3s)";
 
@@ -145,7 +146,7 @@ describe("importing an Agent Sim recording", () => {
   it("reports the version from package.json", async () => {
     await renderWith([recording]);
 
-    expect(initializePlugin).toHaveBeenCalledWith(expect.objectContaining({ version: packageJson.version }));
+    expect(initializePlugin).toHaveBeenCalledWith(expect.objectContaining({ version: "9.8.7" }));
   });
 
   it("takes an untyped object with one data table down the same path", async () => {
