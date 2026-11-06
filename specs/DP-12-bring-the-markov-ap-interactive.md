@@ -39,7 +39,7 @@ The Datalog plugin learns a general saved format, the multi-value snapshot, that
 
 ### Release
 
-- **R19.** Released as 0.0.4, including the version the plugin reports to CODAP.
+- **R19.** Released as 0.0.4, including the version the plugin reports to CODAP. The bump to 0.0.4 comes in its own release PR before the tag, as the repo usually does, not on the feature branch.
 - **R20.** The version the plugin reports comes from `package.json`, so it is set in one place.
 
 ## Technical Notes
@@ -101,12 +101,13 @@ Checked in `question-interactives` at version 1.28.0, `packages/agent-simulation
 
 ## Not Yet Implemented
 
-The steps below follow the merge. The two version commits sit at the end of the branch, so they can ship with the feature or move to their own PR, which is the repo's usual convention.
+The steps below follow the feature's merge.
 
 - End-to-end check: a branch deploy (DP-12's own before merge, or `branch/main/` after it) on a copy of staging activity 1458 with the Markov interactive in place of Agent Sim, using a snapshot from MARK-18's branch build, and on staging activity 1458, the real Agent Sim activity. This is the first run of the real `App.tsx` load path, Firestore and the Activity Player. The import modules were run in CODAP 3.1.2 with demo storage.
-- Tag the merge commit on `main` as `v0.0.4` and push the tag. `ci.yml` deploys it under `version/v0.0.4/`.
+- Bump the version to 0.0.4 in `package.json` and `package-lock.json`, in its own release PR, once the check passes.
+- Tag that PR's merge commit on `main` as `v0.0.4` and push the tag. `ci.yml` deploys it under `version/v0.0.4/`.
 - Run the Release workflow (`release.yml`) with version `v0.0.4`, which copies that version's `index-top.html` to the top-level `index.html`. Promotion changes the plugin for every activity using the top-level URL at once. To roll back, run the Release workflow with `v0.0.3`.
-- This is the first tag and release run since deployment moved to OIDC, so a failure in either step is most likely the role's trust policy, not this code.
+- This is the first tag and release run since deployment moved to OIDC, so a failure in the tag or release step is most likely the role's trust policy, not this code.
 
 Timeouts on `sendRequest`, which should be rare on a `concord.org` host, are accepted in three places: a read that times out at load shows that snapshot as not imported, so Get Data could repeat its rows; a selection timeout on any snapshot's dataset rolls back the new import; and a timeout when clicking a snapshot is an unhandled rejection, as it is for recordings.
 
