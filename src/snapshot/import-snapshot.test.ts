@@ -2,7 +2,9 @@ import {
   codapInterface, createItems, createTable, getAllItems, getItemByIndex, getListOfDataContexts
 } from "@concord-consortium/codap-plugin-api";
 import { DemoObjectStorage, StoredObject } from "@concord-consortium/object-storage";
-import { datasetName, findImportedSnapshotIds, importSnapshot, selectSnapshotRows } from "./import-snapshot";
+import {
+  datasetName, findImportedSnapshotIds, importSnapshot, kLeftoverRows, selectSnapshotRows
+} from "./import-snapshot";
 
 jest.mock("@concord-consortium/codap-plugin-api", () => ({
   codapInterface: { sendRequest: jest.fn() },
@@ -278,7 +280,7 @@ describe("import-snapshot", () => {
         if (request.action === "delete") throw new Error("delete failed");
         return fakeSendRequest(request);
       });
-      await expect(importObject(storage, object, "Data1")).rejects.toBe("timed out");
+      await expect(importObject(storage, object, "Data1")).rejects.toThrow(kLeftoverRows);
 
       await expect(importObject(storage, object, "Data1")).rejects.toThrow("It is already in CODAP.");
 
@@ -461,23 +463,22 @@ describe("import-snapshot", () => {
       expect(rowsOf(datasetName("first", 0))).toHaveLength(2);
     });
 
-    it("rethrows the first failure and keeps cleaning up when a delete rejects", async () => {
+    it("keeps cleaning up when a delete rejects, and says rows were left", async () => {
       const object = makeSnapshot("first", [words, pairs]);
-      const failure = "timed out";
-      createItemsMock.mockImplementationOnce(fakeCreateItems).mockRejectedValueOnce(failure);
+      createItemsMock.mockImplementationOnce(fakeCreateItems).mockRejectedValueOnce("timed out");
       sendRequest.mockImplementation(async request => {
         if (request.resource === `dataContext[${datasetName("first", 0)}]`) throw new Error("delete failed");
         return fakeSendRequest(request);
       });
 
-      await expect(importObject(await makeStorage(object), object, "Data1")).rejects.toBe(failure);
+      await expect(importObject(await makeStorage(object), object, "Data1")).rejects.toThrow(kLeftoverRows);
 
       expect(sendRequest).toHaveBeenCalledWith({
         action: "delete", resource: `dataContext[${datasetName("first", 1)}]`
       });
     });
 
-    it("rethrows the first failure and keeps cleaning up when a row delete rejects", async () => {
+    it("keeps cleaning up when a row delete rejects, and says rows were left", async () => {
       const object = makeSnapshot("first", [words, pairs]);
       addDataset(datasetName("first", 0), []);
       createItemsMock.mockImplementationOnce(fakeCreateItems).mockRejectedValueOnce("timed out");
@@ -486,12 +487,34 @@ describe("import-snapshot", () => {
         return fakeSendRequest(request);
       });
 
-      await expect(importObject(await makeStorage(object), object, "Data1")).rejects.toBe("timed out");
+      await expect(importObject(await makeStorage(object), object, "Data1")).rejects.toThrow(kLeftoverRows);
 
       expect(sendRequest).toHaveBeenCalledWith({
         action: "delete", resource: `dataContext[${datasetName("first", 1)}]`
       });
       expect(datasets.has(datasetName("first", 1))).toBe(false);
+    });
+
+    it("says rows were left when CODAP refuses a delete, keeping the first message", async () => {
+      const object = makeSnapshot("first", [words, pairs]);
+      createItemsMock.mockImplementationOnce(fakeCreateItems).mockResolvedValueOnce({ success: false });
+      sendRequest.mockImplementation(async request => (
+        request.action === "delete" ? { success: false } : fakeSendRequest(request)
+      ));
+
+      await expect(importObject(await makeStorage(object), object, "Data1"))
+        .rejects.toThrow(`CODAP refused the rows of "Data1_Pairs". ${kLeftoverRows}`);
+    });
+
+    it("rethrows the first failure when rows are left but cannot be read", async () => {
+      const object = makeSnapshot("first", [words, pairs]);
+      createItemsMock.mockImplementationOnce(fakeCreateItems).mockRejectedValueOnce("timed out");
+      sendRequest.mockImplementation(async request => (
+        request.action === "delete" ? { success: false } : fakeSendRequest(request)
+      ));
+      (getItemByIndex as jest.Mock).mockRejectedValue("read timed out");
+
+      await expect(importObject(await makeStorage(object), object, "Data1")).rejects.toBe("timed out");
     });
 
     it("selects the snapshot's rows in its own datasets", async () => {

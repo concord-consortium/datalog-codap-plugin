@@ -46,6 +46,17 @@ const deleteSnapshotRows = (dataset: string, objectId: string) =>
     action: "delete", resource: `dataContext[${dataset}].itemSearch[${kObjectIdAttr}==${objectId}]`
   }).catch(() => undefined);
 
+export const kLeftoverRows =
+  "Some of its rows could not be removed from CODAP. Delete them, then press Get Data again.";
+
+const anyHoldsRows = async (datasets: string[]) => {
+  for (const dataset of datasets) {
+    const first: any = await getItemByIndex(dataset, 0).catch(() => undefined);
+    if (first?.success) return true;
+  }
+  return false;
+};
+
 const snapshotDatasets = async (): Promise<string[]> => {
   const list = await getListOfDataContexts();
   const contexts: any[] = list.success ? list.values : [];
@@ -115,6 +126,10 @@ export const importSnapshot = async (
     for (const dataset of datasets) {
       if (existing.has(dataset)) await deleteSnapshotRows(dataset, objectId);
       else await deleteDataset(dataset);
+    }
+    if (await anyHoldsRows(datasets)) {
+      const detail = e instanceof Error ? `${e.message} ` : "";
+      throw new Error(`${detail}${kLeftoverRows}`);
     }
     throw e;
   }
