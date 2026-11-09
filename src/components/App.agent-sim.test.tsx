@@ -149,6 +149,7 @@ describe("importing an Agent Sim recording", () => {
     await getData(kRecordingName);
 
     expect(sentRequests().filter(request => request.resource === "dataContext")).toEqual([]);
+    expect(sentRequests().filter(request => request.action === "delete")).toEqual([]);
     expect(createItems).toHaveBeenCalledWith("DatalogPluginData", expectedItems(kRecordingName, "recording-1"));
     expect((createTable as jest.Mock).mock.calls).toEqual([["DatalogPluginData"]]);
   });

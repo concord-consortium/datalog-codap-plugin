@@ -81,7 +81,8 @@ The plugin shows a message and writes nothing to CODAP when:
 
 - the index is missing or malformed, or `tables` is empty
 - an `id` is not a string naming a data table in the object
-- a data table has no `cols` list
+- a data table has no `name`, or no `cols` list
+- a column name is not a string
 - `colTypes` differs in length from `cols`, or holds another value
 - the index names a table twice
 - `cols` repeats a name or holds an empty name

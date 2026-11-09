@@ -88,6 +88,23 @@ describe("parseSnapshotTables", () => {
     expect(() => parseSnapshotTables(metadata, indexFor(["numeric"]))).toThrow('Table "T" has no column list.');
   });
 
+  it("refuses a table whose metadata has no name", () => {
+    const metadata = metadataWithCols(["a"]);
+    delete (metadata.items.t as any).name;
+    expect(() => parseSnapshotTables(metadata, indexFor(["numeric"])))
+      .toThrow('The index names "t", which has no table name.');
+  });
+
+  it.each([
+    ["a number", 1],
+    ["null", null]
+  ])("refuses a column name that is %s", (_description, col) => {
+    const metadata = metadataWithCols(["a", "b"]);
+    (metadata.items.t as any).cols = ["a", col];
+    expect(() => parseSnapshotTables(metadata, indexFor(["numeric", "numeric"])))
+      .toThrow('Table "T" has a column name that is not text.');
+  });
+
   it.each([
     ["missing colTypes", undefined],
     ["too few colTypes", ["numeric"]],

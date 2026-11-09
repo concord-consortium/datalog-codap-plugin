@@ -28,8 +28,14 @@ const parseTable = (metadata: StoredObjectMetadata, entry: any): SnapshotTable =
     throw new Error(`The index names "${entry.id}", which is not a data table.`);
   }
   const { name, cols } = item as StoredObjectDataTableMetadata;
+  if (typeof name !== "string") {
+    throw new Error(`The index names "${entry.id}", which has no table name.`);
+  }
   if (!Array.isArray(cols)) {
     throw new Error(`Table "${name}" has no column list.`);
+  }
+  if (!cols.every(col => typeof col === "string")) {
+    throw new Error(`Table "${name}" has a column name that is not text.`);
   }
   const { colTypes } = entry;
   if (!Array.isArray(colTypes) || colTypes.length !== cols.length || !colTypes.every(isColType)) {

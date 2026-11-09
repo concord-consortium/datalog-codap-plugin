@@ -182,6 +182,7 @@ describe("bringing in a snapshot", () => {
     await waitFor(() => expect(window.alert).toHaveBeenCalledWith(`${kPlainFailure} It is already in CODAP.`));
     expect(createItemsMock).not.toHaveBeenCalled();
     expect(datasetRequests().filter(request => request.resource === "dataContext")).toEqual([]);
+    expect(datasetRequests().filter(request => request.action === "delete")).toEqual([]);
   });
 
   it("shows a snapshot found at load as imported, with DatalogPluginData absent", async () => {
