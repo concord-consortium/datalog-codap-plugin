@@ -41,6 +41,11 @@ const createDataset = async (dataset: string, title: string, table: SnapshotTabl
 const deleteDataset = (dataset: string) =>
   codapInterface.sendRequest({ action: "delete", resource: `dataContext[${dataset}]` }).catch(() => undefined);
 
+const deleteSnapshotRows = (dataset: string, objectId: string) =>
+  codapInterface.sendRequest({
+    action: "delete", resource: `dataContext[${dataset}].itemSearch[${kObjectIdAttr}==${objectId}]`
+  }).catch(() => undefined);
+
 const snapshotDatasets = async (): Promise<string[]> => {
   const list = await getListOfDataContexts();
   const contexts: any[] = list.success ? list.values : [];
@@ -107,7 +112,10 @@ export const importSnapshot = async (
     }
     await selectSnapshotRows(objectId);
   } catch (e) {
-    for (const dataset of datasets.filter(name => !existing.has(name))) await deleteDataset(dataset);
+    for (const dataset of datasets) {
+      if (existing.has(dataset)) await deleteSnapshotRows(dataset, objectId);
+      else await deleteDataset(dataset);
+    }
     throw e;
   }
 };

@@ -173,6 +173,17 @@ describe("bringing in a snapshot", () => {
     expect(createItemsMock).toHaveBeenCalledTimes(2);
   });
 
+  it("alerts and writes nothing when the snapshot's dataset already holds rows", async () => {
+    codapItems.set(kDataset, [{ id: 1, values: { __objectId: snapshot.id } }]);
+    (getItemByIndex as jest.Mock).mockRejectedValueOnce("timed out");
+    await renderWith([snapshot]);
+    pressGetData("Data1");
+
+    await waitFor(() => expect(window.alert).toHaveBeenCalledWith(`${kPlainFailure} It is already in CODAP.`));
+    expect(createItemsMock).not.toHaveBeenCalled();
+    expect(datasetRequests().filter(request => request.resource === "dataContext")).toEqual([]);
+  });
+
   it("shows a snapshot found at load as imported, with DatalogPluginData absent", async () => {
     codapItems.set(kDataset, [{ id: 1, values: { __objectId: snapshot.id } }]);
     await renderWith([snapshot]);

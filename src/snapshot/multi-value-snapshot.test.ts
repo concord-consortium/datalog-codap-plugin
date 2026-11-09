@@ -74,12 +74,18 @@ describe("parseSnapshotTables", () => {
     const metadata = metadataWithCols(["a"]);
     metadata.items["1"] = metadata.items.t;
     const index = { tables: [{ id: 1, colTypes: ["numeric"] }] };
-    expect(() => parseSnapshotTables(metadata, index)).toThrow('The index names "1", which is not a data table.');
+    expect(() => parseSnapshotTables(metadata, index)).toThrow("The index has a table with no valid id.");
   });
 
   it("refuses an entry that is not an object", () => {
     expect(() => parseSnapshotTables(makeSnapshot().metadata, { tables: [null] }))
-      .toThrow('The index names "undefined", which is not a data table.');
+      .toThrow("The index has a table with no valid id.");
+  });
+
+  it("refuses a table whose metadata has no column list", () => {
+    const metadata = metadataWithCols(["a"]);
+    delete (metadata.items.t as any).cols;
+    expect(() => parseSnapshotTables(metadata, indexFor(["numeric"]))).toThrow('Table "T" has no column list.');
   });
 
   it.each([

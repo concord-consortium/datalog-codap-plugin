@@ -37,6 +37,12 @@ const fakeSendRequest = async (request: any) => {
     selections.set(selection[1], values);
     return { success: true };
   }
+  const search = /^dataContext\[(.*)\]\.itemSearch\[__objectId==(.*)\]$/.exec(resource);
+  if (action === "delete" && search) {
+    const dataset = datasets.get(search[1]);
+    if (dataset) dataset.items = dataset.items.filter(item => item.values.__objectId !== search[2]);
+    return { success: true };
+  }
   const deletion = /^dataContext\[(.*)\]$/.exec(resource);
   if (action === "delete" && deletion) {
     datasets.delete(deletion[1]);
@@ -279,15 +285,37 @@ describe("import-snapshot", () => {
       expect(rowsOf(datasetName("first", 0))).toHaveLength(2);
     });
 
-    it("fills an existing empty dataset and keeps it when the import fails", async () => {
+    it("empties a reused dataset when the import fails, so a retry succeeds", async () => {
       const object = makeSnapshot("first", [words, pairs]);
+      const storage = await makeStorage(object);
       addDataset(datasetName("first", 0), []);
       createItemsMock.mockImplementationOnce(fakeCreateItems).mockRejectedValueOnce("timed out");
 
+      await expect(importObject(storage, object, "Data1")).rejects.toBe("timed out");
+
+      expect(rowsOf(datasetName("first", 0))).toEqual([]);
+      expect(datasets.has(datasetName("first", 1))).toBe(false);
+
+      await importObject(storage, object, "Data1");
+
+      expect(rowsOf(datasetName("first", 0))).toHaveLength(2);
+      expect(rowsOf(datasetName("first", 1))).toHaveLength(1);
+    });
+
+    it("empties a reused dataset whose rows land after their request times out", async () => {
+      const object = makeSnapshot("first", [words]);
+      addDataset(datasetName("first", 0), []);
+      createItemsMock.mockImplementationOnce(async (name: string, items: any[]) => {
+        await fakeCreateItems(name, items);
+        throw "timed out";
+      });
+
       await expect(importObject(await makeStorage(object), object, "Data1")).rejects.toBe("timed out");
 
-      expect(datasets.has(datasetName("first", 0))).toBe(true);
-      expect(datasets.has(datasetName("first", 1))).toBe(false);
+      expect(rowsOf(datasetName("first", 0))).toEqual([]);
+      expect(sendRequest).toHaveBeenCalledWith({
+        action: "delete", resource: `dataContext[${datasetName("first", 0)}].itemSearch[__objectId==first]`
+      });
     });
 
     it("skips a table whose stored item has no rows", async () => {
@@ -359,7 +387,7 @@ describe("import-snapshot", () => {
       expect(rowsOf(datasetName("first", 1))).toHaveLength(1);
     });
 
-    it("treats a write with no answer as refused", async () => {
+    it("treats an empty reply to a write as refused", async () => {
       const object = makeSnapshot("first", [words, pairs]);
       createItemsMock.mockImplementationOnce(fakeCreateItems).mockResolvedValueOnce(undefined);
 
@@ -403,8 +431,14 @@ describe("import-snapshot", () => {
     it("removes every dataset when the selection rejects, so a second import starts clean", async () => {
       const object = makeSnapshot("first", [words, pairs]);
       const storage = await makeStorage(object);
-      sendRequest.mockImplementationOnce(fakeSendRequest).mockImplementationOnce(fakeSendRequest)
-        .mockRejectedValueOnce("timed out");
+      let failed = false;
+      sendRequest.mockImplementation(async request => {
+        if (!failed && request.resource.endsWith(".selectionList")) {
+          failed = true;
+          throw "timed out";
+        }
+        return fakeSendRequest(request);
+      });
 
       await expect(importObject(storage, object, "Data1")).rejects.toBe("timed out");
 
@@ -441,6 +475,23 @@ describe("import-snapshot", () => {
       expect(sendRequest).toHaveBeenCalledWith({
         action: "delete", resource: `dataContext[${datasetName("first", 1)}]`
       });
+    });
+
+    it("rethrows the first failure and keeps cleaning up when a row delete rejects", async () => {
+      const object = makeSnapshot("first", [words, pairs]);
+      addDataset(datasetName("first", 0), []);
+      createItemsMock.mockImplementationOnce(fakeCreateItems).mockRejectedValueOnce("timed out");
+      sendRequest.mockImplementation(async request => {
+        if (request.resource.includes(".itemSearch[")) throw new Error("delete failed");
+        return fakeSendRequest(request);
+      });
+
+      await expect(importObject(await makeStorage(object), object, "Data1")).rejects.toBe("timed out");
+
+      expect(sendRequest).toHaveBeenCalledWith({
+        action: "delete", resource: `dataContext[${datasetName("first", 1)}]`
+      });
+      expect(datasets.has(datasetName("first", 1))).toBe(false);
     });
 
     it("selects the snapshot's rows in its own datasets", async () => {

@@ -143,6 +143,16 @@ describe("importing an Agent Sim recording", () => {
     expect((getAllItems as jest.Mock).mock.calls.every(([dataset]) => dataset === "DatalogPluginData")).toBe(true);
   });
 
+  it("adds a second recording's items to the existing DatalogPluginData", async () => {
+    (getDataContext as jest.Mock).mockResolvedValue({ success: true, values: { name: "DatalogPluginData" } });
+    await renderWith([recording]);
+    await getData(kRecordingName);
+
+    expect(sentRequests().filter(request => request.resource === "dataContext")).toEqual([]);
+    expect(createItems).toHaveBeenCalledWith("DatalogPluginData", expectedItems(kRecordingName, "recording-1"));
+    expect((createTable as jest.Mock).mock.calls).toEqual([["DatalogPluginData"]]);
+  });
+
   it("reports the version from package.json", async () => {
     await renderWith([recording]);
 

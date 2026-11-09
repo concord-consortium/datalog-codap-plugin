@@ -20,11 +20,17 @@ export const isSnapshot = (metadata: StoredObjectMetadata) => metadata.subType =
 const isColType = (value: unknown): value is ColType => kColTypes.includes(value as ColType);
 
 const parseTable = (metadata: StoredObjectMetadata, entry: any): SnapshotTable => {
-  const item = metadata.items[entry?.id];
-  if (typeof entry?.id !== "string" || item?.type !== "dataTable") {
-    throw new Error(`The index names "${entry?.id}", which is not a data table.`);
+  if (typeof entry?.id !== "string") {
+    throw new Error("The index has a table with no valid id.");
+  }
+  const item = metadata.items[entry.id];
+  if (item?.type !== "dataTable") {
+    throw new Error(`The index names "${entry.id}", which is not a data table.`);
   }
   const { name, cols } = item as StoredObjectDataTableMetadata;
+  if (!Array.isArray(cols)) {
+    throw new Error(`Table "${name}" has no column list.`);
+  }
   const { colTypes } = entry;
   if (!Array.isArray(colTypes) || colTypes.length !== cols.length || !colTypes.every(isColType)) {
     throw new Error(`Table "${name}" needs one categorical or numeric colType per column.`);
