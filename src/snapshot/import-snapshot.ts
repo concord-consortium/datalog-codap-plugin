@@ -57,8 +57,9 @@ const anyHoldsRows = async (datasets: string[]) => {
   return false;
 };
 
-const snapshotDatasets = async (): Promise<string[]> => {
+const snapshotDatasets = async (requireList = false): Promise<string[]> => {
   const list = await getListOfDataContexts();
+  if (requireList && !list.success) throw new Error("CODAP refused the list of its datasets.");
   const contexts: any[] = list.success ? list.values : [];
   return contexts.map(context => context.name).filter((name: string) => name.startsWith(kDatasetPrefix));
 };
@@ -96,12 +97,15 @@ export const importSnapshot = async (
     if (!data) throw new Error(`Table "${table.name}" could not be read.`);
     const rows: any[][] = data.rows ?? [];
     if (!Array.isArray(rows) || !rows.every(Array.isArray)) throw new Error(`Table "${table.name}" has invalid rows.`);
+    if (rows.some(row => row.length > table.cols.length)) {
+      throw new Error(`Table "${table.name}" has a row with more values than columns.`);
+    }
     return { table, tableIndex, rows };
   }));
   const withRows = read.filter(({ rows }) => rows.length > 0);
   if (withRows.length === 0) throw new Error("The snapshot has no rows.");
 
-  const existing = new Set(await snapshotDatasets());
+  const existing = new Set(await snapshotDatasets(true));
   const datasets = withRows.map(({ tableIndex }) => datasetName(objectId, tableIndex));
   for (const dataset of datasets.filter(name => existing.has(name))) {
     const first: any = await getItemByIndex(dataset, 0);

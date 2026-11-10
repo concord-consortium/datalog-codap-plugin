@@ -272,6 +272,29 @@ describe("import-snapshot", () => {
       expect(rowsOf(datasetName("first", 1))).toHaveLength(1);
     });
 
+    it("writes nothing when CODAP refuses the list of its datasets", async () => {
+      const object = makeSnapshot("first", [words]);
+      addDataset(datasetName("first", 0), []);
+      (getListOfDataContexts as jest.Mock).mockResolvedValue({ success: false });
+
+      await expect(importObject(await makeStorage(object), object, "Data1"))
+        .rejects.toThrow("CODAP refused the list of its datasets.");
+
+      expect(sendRequest).not.toHaveBeenCalled();
+      expect(createItemsMock).not.toHaveBeenCalled();
+      expect(datasets.has(datasetName("first", 0))).toBe(true);
+    });
+
+    it("refuses a row with more values than columns, before writing", async () => {
+      const object = makeSnapshot("first", [words, { ...pairs, rows: [["the", "cat", "extra"]] }]);
+
+      await expect(importObject(await makeStorage(object), object, "Data1"))
+        .rejects.toThrow('Table "Pairs" has a row with more values than columns.');
+
+      expect(sendRequest).not.toHaveBeenCalled();
+      expect(createItemsMock).not.toHaveBeenCalled();
+    });
+
     it("writes nothing more on a retry after a delete failed", async () => {
       const object = makeSnapshot("first", [words, pairs]);
       const storage = await makeStorage(object);

@@ -17,7 +17,7 @@ Each table is one `addDataTable` item:
 - `id`: any item id except `tables`.
 - `name`: the table's own name, without the snapshot's.
 - `cols`: the column names, in order.
-- `rows`: arrays parallel to `cols`, holding real JSON types. A short row leaves its remaining columns empty. CODAP trims leading and trailing whitespace from values, so a value of only whitespace arrives empty, while inner spaces stay.
+- `rows`: arrays parallel to `cols`, holding real JSON types. A short row leaves its remaining columns empty, and a row longer than `cols` is refused. CODAP trims leading and trailing whitespace from values, so a value of only whitespace arrives empty, while inner spaces stay.
 
 Item `subType` is not read. Each table is stored as its own document, so the 1 MiB limit applies per table, and the writer is responsible for staying under it.
 
@@ -88,7 +88,8 @@ The plugin shows a message and writes nothing to CODAP when:
 - `cols` repeats a name or holds an empty name
 - `cols` uses a reserved name
 - every table is empty
-- a table's `rows` are not arrays of arrays
+- a table's `rows` are not arrays of arrays, or a row holds more values than `cols`
+- CODAP refuses the list of its datasets
 - any of the snapshot's datasets already holds rows
 
 An object with no data table at all is not listed, so no message appears.
