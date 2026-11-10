@@ -74,5 +74,10 @@
     button {
       width: 100px
     }
+
+    .status {
+      margin-top: 4px;
+      min-height: 1.2em;
+    }
   }
 }

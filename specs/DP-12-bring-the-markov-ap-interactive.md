@@ -30,7 +30,7 @@ The Datalog plugin learns a general saved format, the multi-value snapshot, that
 - **R13.** After an import, each dataset that received rows has a case table open, in index order, and the snapshot's rows are selected in each.
 - **R14.** A snapshot counts as imported when the first row of any of its snapshot datasets holds its `__objectId`, including after the plugin reloads in a saved document. Get Data is then disabled, as it is for recordings.
 - **R15.** Clicking an imported snapshot selects its rows, matched by `__objectId`, and clears the selection in other snapshots' datasets.
-- **R16.** A second press of Get Data during an import does nothing.
+- **R16.** A second press of Get Data during a snapshot import does nothing. While the import runs, Get Data is disabled and a status line beside it, announced to screen readers, reads "Importing…".
 
 ### Agent Sim and anything else
 

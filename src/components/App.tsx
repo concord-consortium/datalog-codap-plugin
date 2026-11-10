@@ -43,6 +43,7 @@ export const App = () => {
   const [objectStorageConfig, setObjectStorageConfig] = useState<FirebaseObjectStorageConfig | null>(null);
   const objectStorageRef = useRef<IObjectStorage | null>(null);
   const importingRef = useRef(false);
+  const [importing, setImporting] = useState(false);
   const [storedObjectDataTables, setStoredObjectDataTables] = useState<StoredObjectDataTable[]>([]);
   const [selectedDataTableObjectId, setSelectedDataTableObjectId] = useState<string | null>(null);
   const [importedDataTableIds, setImportedDataTableIds] = useState<Set<string>>(new Set());
@@ -287,6 +288,7 @@ export const App = () => {
       const storage = objectStorageRef.current;
       if (!storage || importingRef.current) return;
       importingRef.current = true;
+      setImporting(true);
       try {
         await importSnapshot(storage, selectedDataTableObjectId, name, metadata);
         setImportedDataTableIds(prev => new Set(prev).add(selectedDataTableObjectId));
@@ -296,6 +298,7 @@ export const App = () => {
         alert(`This saved data could not be brought into CODAP.${detail}`);
       } finally {
         importingRef.current = false;
+        setImporting(false);
       }
       return;
     }
@@ -365,7 +368,8 @@ export const App = () => {
 
   }, [selectedDataTableObjectId, storedObjectDataTables, highlightDataSet]);
 
-  const getDataDisabled = !selectedDataTableObjectId || importedDataTableIds.has(selectedDataTableObjectId);
+  const getDataDisabled =
+    importing || !selectedDataTableObjectId || importedDataTableIds.has(selectedDataTableObjectId);
 
   const renderApp = () => {
     if (fatalError) {
@@ -404,6 +408,7 @@ export const App = () => {
           <button onClick={handleGetData} disabled={getDataDisabled}>
             Get Data
           </button>
+          <span className="status" role="status">{importing ? "Importing…" : ""}</span>
         </div>
       </>
     );

@@ -140,6 +140,23 @@ describe("bringing in a snapshot", () => {
     expect(createItemsMock).toHaveBeenCalledTimes(1);
   });
 
+  it("disables Get Data and shows Importing… until the import settles", async () => {
+    let finish: (reply: unknown) => void = () => undefined;
+    createItemsMock.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    await renderWith([snapshot]);
+    expect(screen.getByRole("status").textContent).toBe("");
+    pressGetData("Data1");
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Importing…"));
+    expect(getDataButton()).toHaveProperty("disabled", true);
+
+    finish({ success: false });
+
+    await waitFor(() => expect(window.alert).toHaveBeenCalled());
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(getDataButton()).toHaveProperty("disabled", false);
+  });
+
   it("alerts with the reason and sends CODAP nothing for a malformed index", async () => {
     itemData.tables = { tables: [] };
     await renderWith([snapshot]);
