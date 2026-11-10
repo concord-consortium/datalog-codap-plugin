@@ -1,5 +1,5 @@
 import {
-  codapInterface, createItems, createTable, getAllItems, getItemByIndex, getListOfDataContexts
+  codapInterface, createItems, createTable, getAllItems, getDataContext, getItemByIndex, getListOfDataContexts
 } from "@concord-consortium/codap-plugin-api";
 import { IObjectStorage, StoredObjectMetadata } from "@concord-consortium/object-storage";
 import { kObjectIdAttr, kSnapshotIndexItemId, parseSnapshotTables, SnapshotTable } from "./multi-value-snapshot";
@@ -57,6 +57,16 @@ const anyHoldsRows = async (datasets: string[]) => {
   return false;
 };
 
+const hasColumnsOf = async (dataset: string, table: SnapshotTable, title: string) => {
+  const context: any = await getDataContext(dataset);
+  if (!context?.success) throw new Error(`CODAP refused the columns of "${title}".`);
+  const names = new Set<string>();
+  for (const collection of context.values?.collections ?? []) {
+    for (const attr of collection.attrs ?? []) names.add(attr.name);
+  }
+  return [...table.cols, kObjectIdAttr].every(col => names.has(col));
+};
+
 const snapshotDatasets = async (requireList = false): Promise<string[]> => {
   const list = await getListOfDataContexts();
   if (requireList && !list.success) throw new Error("CODAP refused the list of its datasets.");
@@ -95,7 +105,7 @@ export const importSnapshot = async (
   const read = await Promise.all(tables.map(async (table, tableIndex) => {
     const data = await storage.readDataItem(objectId, table.id);
     if (!data) throw new Error(`Table "${table.name}" could not be read.`);
-    const rows: any[][] = data.rows ?? [];
+    const rows: any[][] = data.rows === undefined ? [] : data.rows;
     if (!Array.isArray(rows) || !rows.every(Array.isArray)) throw new Error(`Table "${table.name}" has invalid rows.`);
     if (rows.some(row => row.length > table.cols.length)) {
       throw new Error(`Table "${table.name}" has a row with more values than columns.`);
@@ -105,17 +115,29 @@ export const importSnapshot = async (
   const withRows = read.filter(({ rows }) => rows.length > 0);
   if (withRows.length === 0) throw new Error("The snapshot has no rows.");
 
+  const titleOf = (table: SnapshotTable) => `${snapshotName}_${table.name}`;
   const existing = new Set(await snapshotDatasets(true));
   const datasets = withRows.map(({ tableIndex }) => datasetName(objectId, tableIndex));
   for (const dataset of datasets.filter(name => existing.has(name))) {
     const first: any = await getItemByIndex(dataset, 0);
     if (first.success) throw new Error("It is already in CODAP.");
   }
+  for (const { table, tableIndex } of withRows) {
+    const dataset = datasetName(objectId, tableIndex);
+    const title = titleOf(table);
+    if (existing.has(dataset) && !await hasColumnsOf(dataset, table, title)) {
+      await requireSuccess(
+        codapInterface.sendRequest({ action: "delete", resource: `dataContext[${dataset}]` }),
+        `removing the old copy of "${title}"`
+      );
+      existing.delete(dataset);
+    }
+  }
 
   try {
     for (const { table, tableIndex, rows } of withRows) {
       const dataset = datasetName(objectId, tableIndex);
-      const title = `${snapshotName}_${table.name}`;
+      const title = titleOf(table);
       await createDataset(dataset, title, table);
       const items = rows.map(row => {
         const values: Record<string, unknown> = { [kObjectIdAttr]: objectId };

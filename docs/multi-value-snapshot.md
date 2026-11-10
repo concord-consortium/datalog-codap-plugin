@@ -88,7 +88,7 @@ The plugin shows a message and writes nothing to CODAP when:
 - `cols` repeats a name or holds an empty name
 - `cols` uses a reserved name
 - every table is empty
-- a table's `rows` are not arrays of arrays, or a row holds more values than `cols`
+- a table's `rows` are not arrays of arrays (a missing `rows` is an empty table, but `null` is refused), or a row holds more values than `cols`
 - CODAP refuses the list of its datasets
 - any of the snapshot's datasets already holds rows
 
@@ -96,7 +96,7 @@ An object with no data table at all is not listed, so no message appears.
 
 ## In CODAP
 
-Every send gets its own datasets, one for each table with rows, and a table with no rows is skipped. Rows from one snapshot never go into another's dataset, even with the same columns or the same name.
+Every send gets its own datasets, one for each table with rows, and a table with no rows is skipped. Rows from one snapshot never go into another's dataset, even with the same columns or the same name. If the snapshot's dataset is still in CODAP but empty, its rows go back into it, unless a column has been renamed or deleted there: then the dataset is replaced.
 
 - The dataset's title is `<snapshot display name>_<table name>`, such as "Trial 1_Readings". Two snapshots with the same name get matching titles and stay separate.
 - It has one flat collection, named with the table's `name`, holding the columns in `cols` order with the types in `colTypes`.

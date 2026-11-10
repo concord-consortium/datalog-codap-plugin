@@ -1,5 +1,5 @@
 import {
-  codapInterface, createItems, createTable, getAllItems, getItemByIndex, getListOfDataContexts
+  codapInterface, createItems, createTable, getAllItems, getDataContext, getItemByIndex, getListOfDataContexts
 } from "@concord-consortium/codap-plugin-api";
 import { DemoObjectStorage, StoredObject } from "@concord-consortium/object-storage";
 import {
@@ -11,6 +11,7 @@ jest.mock("@concord-consortium/codap-plugin-api", () => ({
   createItems: jest.fn(),
   createTable: jest.fn(),
   getAllItems: jest.fn(),
+  getDataContext: jest.fn(),
   getItemByIndex: jest.fn(),
   getListOfDataContexts: jest.fn()
 }));
@@ -58,8 +59,13 @@ const fakeCreateItems = async (name: string, items: any[]) => {
   return { success: true };
 };
 
-const addDataset = (name: string, values: Record<string, unknown>[]) => {
-  datasets.set(name, { request: {}, items: values.map(itemValues => ({ id: nextItemId++, values: itemValues })) });
+const kAllCols = ["word", "count", "from", "to", "__objectId"];
+
+const addDataset = (name: string, values: Record<string, unknown>[], cols = kAllCols) => {
+  datasets.set(name, {
+    request: { values: { collections: [{ name: "T", attrs: cols.map(col => ({ name: col })) }] } },
+    items: values.map(itemValues => ({ id: nextItemId++, values: itemValues }))
+  });
 };
 
 const rowsOf = (name: string) => datasets.get(name)?.items.map(item => item.values);
@@ -125,6 +131,11 @@ describe("import-snapshot", () => {
     (getAllItems as jest.Mock).mockImplementation(async (name: string) => (
       { success: true, values: datasets.get(name)?.items ?? [] }
     ));
+    (getDataContext as jest.Mock).mockImplementation(async (name: string) => {
+      const dataset = datasets.get(name);
+      if (!dataset) return { success: false };
+      return { success: true, values: { collections: dataset.request.values.collections } };
+    });
     (getItemByIndex as jest.Mock).mockImplementation(async (name: string, index: number) => {
       const item = datasets.get(name)?.items[index];
       return item ? { success: true, values: item } : { success: false, values: { error: "not found" } };
@@ -292,6 +303,87 @@ describe("import-snapshot", () => {
         .rejects.toThrow('Table "Pairs" has a row with more values than columns.');
 
       expect(sendRequest).not.toHaveBeenCalled();
+      expect(createItemsMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses a table whose rows are null, before writing", async () => {
+      const object = makeSnapshot("first", [words, { ...pairs, rows: null as any }]);
+
+      await expect(importObject(await makeStorage(object), object, "Data1"))
+        .rejects.toThrow('Table "Pairs" has invalid rows.');
+
+      expect(sendRequest).not.toHaveBeenCalled();
+      expect(createItemsMock).not.toHaveBeenCalled();
+    });
+
+    it("replaces a reused empty dataset that has lost one of the table's columns", async () => {
+      const object = makeSnapshot("first", [words]);
+      addDataset(datasetName("first", 0), [], ["word", "__objectId"]);
+
+      await importObject(await makeStorage(object), object, "Data1");
+
+      expect(sendRequest)
+        .toHaveBeenCalledWith({ action: "delete", resource: `dataContext[${datasetName("first", 0)}]` });
+      expect(collectionOf(datasetName("first", 0)).attrs.map((attr: any) => attr.name))
+        .toEqual(["word", "count", "__objectId"]);
+      expect(rowsOf(datasetName("first", 0))).toEqual([
+        { __objectId: "first", word: "the", count: 2 },
+        { __objectId: "first", word: "cat", count: 1 }
+      ]);
+    });
+
+    it("replaces a reused empty dataset that has lost its object id column", async () => {
+      const object = makeSnapshot("first", [words]);
+      addDataset(datasetName("first", 0), [], ["word", "count"]);
+
+      await importObject(await makeStorage(object), object, "Data1");
+
+      expect(sendRequest)
+        .toHaveBeenCalledWith({ action: "delete", resource: `dataContext[${datasetName("first", 0)}]` });
+    });
+
+    it("removes a replaced dataset whole when the import then fails", async () => {
+      const object = makeSnapshot("first", [words]);
+      addDataset(datasetName("first", 0), [], ["word", "__objectId"]);
+      createTableMock.mockResolvedValueOnce({ success: false });
+
+      await expect(importObject(await makeStorage(object), object, "Data1")).rejects.toThrow("CODAP refused");
+
+      expect(datasets.has(datasetName("first", 0))).toBe(false);
+    });
+
+    it("keeps a reused empty dataset that still has every column", async () => {
+      const object = makeSnapshot("first", [words]);
+      addDataset(datasetName("first", 0), []);
+
+      await importObject(await makeStorage(object), object, "Data1");
+
+      expect(sendRequest.mock.calls.filter(([request]) => request.action === "delete")).toEqual([]);
+      expect(rowsOf(datasetName("first", 0))).toHaveLength(2);
+    });
+
+    it("writes nothing when CODAP refuses a reused dataset's columns", async () => {
+      const object = makeSnapshot("first", [words]);
+      addDataset(datasetName("first", 0), []);
+      (getDataContext as jest.Mock).mockResolvedValue({ success: false });
+
+      await expect(importObject(await makeStorage(object), object, "Data1"))
+        .rejects.toThrow('CODAP refused the columns of "Data1_Words".');
+
+      expect(sendRequest).not.toHaveBeenCalled();
+      expect(createItemsMock).not.toHaveBeenCalled();
+    });
+
+    it("writes nothing when CODAP refuses to remove a reused dataset with lost columns", async () => {
+      const object = makeSnapshot("first", [words]);
+      addDataset(datasetName("first", 0), [], ["word", "__objectId"]);
+      sendRequest.mockImplementation(async request => (
+        request.action === "delete" ? { success: false } : fakeSendRequest(request)
+      ));
+
+      await expect(importObject(await makeStorage(object), object, "Data1"))
+        .rejects.toThrow('CODAP refused removing the old copy of "Data1_Words".');
+
       expect(createItemsMock).not.toHaveBeenCalled();
     });
 
