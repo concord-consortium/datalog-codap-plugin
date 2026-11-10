@@ -10,13 +10,17 @@ import {
 
 import {
   createObjectStorage, IObjectStorage, FirebaseObjectStorageConfig, StoredObjectDataTableMetadata,
-  StoredImageMetadata
+  StoredImageMetadata, StoredObjectMetadata
 } from "@concord-consortium/object-storage";
+
+import { findImportedSnapshotIds, importSnapshot, selectSnapshotRows } from "../snapshot/import-snapshot";
+import { isSnapshot } from "../snapshot/multi-value-snapshot";
+
+import packageJson from "../../package.json";
 
 import "./App.css";
 
 const kPluginName = "Datalog";
-const kVersion = "0.0.3";
 const kInitialDimensions = {
   width: 300,
   height: 400
@@ -26,6 +30,7 @@ const kDataContextName = "DatalogPluginData";
 interface StoredObjectDataTable {
   name: string;
   objectId: string;
+  metadata: StoredObjectMetadata;
   dataTableMetadata: StoredObjectDataTableMetadata;
   dataTableItemId: string;
   thumbnailMetadata?: StoredImageMetadata;
@@ -37,6 +42,8 @@ export const App = () => {
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [objectStorageConfig, setObjectStorageConfig] = useState<FirebaseObjectStorageConfig | null>(null);
   const objectStorageRef = useRef<IObjectStorage | null>(null);
+  const importingRef = useRef(false);
+  const [importing, setImporting] = useState(false);
   const [storedObjectDataTables, setStoredObjectDataTables] = useState<StoredObjectDataTable[]>([]);
   const [selectedDataTableObjectId, setSelectedDataTableObjectId] = useState<string | null>(null);
   const [importedDataTableIds, setImportedDataTableIds] = useState<Set<string>>(new Set());
@@ -47,7 +54,7 @@ export const App = () => {
   // initialize the plugin and get the Interactive API settings
   useEffect(() => {
     const init = async () => {
-      await initializePlugin({ pluginName: kPluginName, version: kVersion, dimensions: kInitialDimensions });
+      await initializePlugin({ pluginName: kPluginName, version: packageJson.version, dimensions: kInitialDimensions });
 
       // hide the close button - this will be running in a shared CODAP doc inside Activity Player so we don't
       // want users accidentally closing it and then being unable to get it back
@@ -97,22 +104,24 @@ export const App = () => {
         return;
       }
 
-      setObjectStorageConfig(initInteractive.objectStorageConfig);
-
       // find all the current objects imported
       const checkAllCases = async () => {
-          const getResponse = await getAllItems(kDataContextName);
-          if (getResponse.success) {
-            const importedIds = new Set<string>();
-            getResponse.values.forEach((item: any) => {
-              if (item.values.__objectId) {
-                importedIds.add(item.values.__objectId);
-              }
-            });
+          const importedIds = await findImportedSnapshotIds();
+          try {
+            const getResponse = await getAllItems(kDataContextName);
+            if (getResponse.success) {
+              getResponse.values.forEach((item: any) => {
+                if (item.values.__objectId) {
+                  importedIds.add(item.values.__objectId);
+                }
+              });
+            }
+          } finally {
             setImportedDataTableIds(importedIds);
           }
       };
-      await checkAllCases();
+      await checkAllCases().catch(e => console.error("Failed to find imported data:", e));
+      setObjectStorageConfig(initInteractive.objectStorageConfig);
 
       // start listening to data context changes in CODAP
       codapInterface.on("notify", `dataContext[${kDataContextName}].case`, (msg) => {
@@ -191,6 +200,7 @@ export const App = () => {
           newStoredObjectDataTables.push({
             name,
             objectId: obj.id,
+            metadata: obj.metadata,
             dataTableMetadata: dataTableMetadata as StoredObjectDataTableMetadata,
             dataTableItemId,
             thumbnailItemId,
@@ -238,6 +248,10 @@ export const App = () => {
 
   const highlightDataSet = useCallback(async (id: string) => {
     const highlightObject = storedObjectDataTables.find(dt => dt.objectId === id);
+    if (highlightObject && isSnapshot(highlightObject.metadata)) {
+      await selectSnapshotRows(id);
+      return;
+    }
 
     const getResponse = await getAllItems(kDataContextName);
     if (getResponse.success) {
@@ -266,6 +280,26 @@ export const App = () => {
     const selectedDataTableObject = storedObjectDataTables.find(dt => dt.objectId === selectedDataTableObjectId);
     if (!selectedDataTableObject) {
       alert("Failed to get the selected object.");
+      return;
+    }
+
+    const { metadata, name } = selectedDataTableObject;
+    if (isSnapshot(metadata)) {
+      const storage = objectStorageRef.current;
+      if (!storage || importingRef.current) return;
+      importingRef.current = true;
+      setImporting(true);
+      try {
+        await importSnapshot(storage, selectedDataTableObjectId, name, metadata);
+        setImportedDataTableIds(prev => new Set(prev).add(selectedDataTableObjectId));
+      } catch (e) {
+        console.error("Failed to import snapshot:", e);
+        const detail = e instanceof Error ? ` ${e.message}` : "";
+        alert(`This saved data could not be brought into CODAP.${detail}`);
+      } finally {
+        importingRef.current = false;
+        setImporting(false);
+      }
       return;
     }
 
@@ -334,7 +368,8 @@ export const App = () => {
 
   }, [selectedDataTableObjectId, storedObjectDataTables, highlightDataSet]);
 
-  const getDataDisabled = !selectedDataTableObjectId || importedDataTableIds.has(selectedDataTableObjectId);
+  const getDataDisabled =
+    importing || !selectedDataTableObjectId || importedDataTableIds.has(selectedDataTableObjectId);
 
   const renderApp = () => {
     if (fatalError) {
@@ -373,6 +408,7 @@ export const App = () => {
           <button onClick={handleGetData} disabled={getDataDisabled}>
             Get Data
           </button>
+          <span className="status" role="status">{importing ? "Importing…" : ""}</span>
         </div>
       </>
     );
